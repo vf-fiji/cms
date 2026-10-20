@@ -233,6 +233,8 @@ function addColumn(table: string, column: string, ddl: string) {
 }
 addColumn("custom_widgets", "renderer", "TEXT NOT NULL DEFAULT 'liquid'");
 addColumn("custom_widgets", "ssr", "INTEGER NOT NULL DEFAULT 1");
+addColumn("media", "variants", "TEXT NOT NULL DEFAULT '[]'");
+addColumn("media", "focal", "TEXT NOT NULL DEFAULT ''");
 
 type Params = (string | number | bigint | null | Uint8Array)[];
 

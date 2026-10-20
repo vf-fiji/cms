@@ -9,6 +9,7 @@ import { requirePerm, HttpError } from "../auth";
 import { str, idParam, notFound } from "../http";
 import { mapMedia, ALLOWED_UPLOADS } from "../media";
 import { emit } from "../functions";
+import { invalidateMediaCache, isRaster, makeVariants, removeVariants } from "../images";
 
 export const media = Router();
 
@@ -61,7 +62,7 @@ media.get("/media", (req, res) => {
   res.json({ items: all(sql, ...params).map(mapMedia), folders, counts, total: get("SELECT COUNT(*) n FROM media")!.n });
 });
 
-media.post("/media", requirePerm("media.manage"), upload.array("files", 20), (req, res) => {
+media.post("/media", requirePerm("media.manage"), upload.array("files", 20), async (req, res) => {
   const files = (req.files as Express.Multer.File[]) ?? [];
   if (!files.length) throw new HttpError(400, "Choose at least one file to upload.");
   const folder = str(req.body?.folder, "Folder", { max: 80 });
@@ -93,9 +94,17 @@ media.post("/media", requirePerm("media.manage"), upload.array("files", 20), (re
         /* dimensions are optional */
       }
     }
+    let variants: Awaited<ReturnType<typeof makeVariants>> = [];
+    if (isRaster(mime)) {
+      try {
+        variants = await makeVariants(filename, mime, width);
+      } catch (e: any) {
+        console.error(`[images] couldn't resize ${filename}:`, e?.message ?? e); // the original still works
+      }
+    }
     const title = path.parse(f.originalname).name.replace(/[-_]+/g, " ");
     const r = run(
-      "INSERT INTO media(folder, filename, original_name, mime, size, width, height, alt, title, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO media(folder, filename, original_name, mime, size, width, height, alt, title, variants, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
       folder,
       filename,
       f.originalname.slice(0, 200),
@@ -105,12 +114,14 @@ media.post("/media", requirePerm("media.manage"), upload.array("files", 20), (re
       height,
       "",
       title,
+      JSON.stringify(variants),
       now(),
     );
     const item = mapMedia(get("SELECT * FROM media WHERE id = ?", r.lastId));
     created.push(item);
     emit("media.uploaded", item);
   }
+  invalidateMediaCache();
   if (created.length) logActivity(req.user!.id, "uploaded", "media", null, created.length === 1 ? created[0].originalName : `${created.length} files`);
   res.json({ items: created, rejected });
 });
@@ -118,13 +129,21 @@ media.post("/media", requirePerm("media.manage"), upload.array("files", 20), (re
 media.put("/media/:id", requirePerm("media.manage"), (req, res) => {
   const id = idParam(req.params.id);
   const m = get("SELECT * FROM media WHERE id = ?", id) ?? notFound("File");
+  let focal = m.focal ?? "";
+  if (req.body?.focal !== undefined) {
+    const f = String(req.body.focal ?? "").trim();
+    if (f && !/^\d{1,3}(\.\d+)?% \d{1,3}(\.\d+)?%$/.test(f)) throw new HttpError(400, "Focal point must look like “30% 60%”.");
+    focal = f;
+  }
   run(
-    "UPDATE media SET alt = ?, title = ?, folder = ? WHERE id = ?",
+    "UPDATE media SET alt = ?, title = ?, folder = ?, focal = ? WHERE id = ?",
     str(req.body?.alt ?? m.alt, "Alt text", { max: 300 }),
     str(req.body?.title ?? m.title, "Title", { max: 200 }),
     str(req.body?.folder ?? m.folder, "Folder", { max: 80 }),
+    focal,
     id,
   );
+  invalidateMediaCache();
   res.json(mapMedia(get("SELECT * FROM media WHERE id = ?", id)));
 });
 
@@ -139,6 +158,12 @@ media.delete("/media/:id", requirePerm("media.manage"), (req, res) => {
   if (usedBy.length && req.query.force !== "1") throw new HttpError(409, `This file is used on ${usedBy.join(", ")}. Delete it anyway?`, { usedBy });
   run("DELETE FROM media WHERE id = ?", id);
   fs.rmSync(path.join(UPLOAD_DIR, m.filename), { force: true });
+  try {
+    removeVariants(JSON.parse(m.variants || "[]"));
+  } catch {
+    /* nothing to clean up */
+  }
+  invalidateMediaCache();
   logActivity(req.user!.id, "deleted", "media", id, m.original_name);
   res.json({ ok: true });
 });

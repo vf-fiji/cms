@@ -20,6 +20,7 @@ import { renderPublicPath, renderPageSnapshot, renderContentDetail, computePaths
 import { runDueSchedules } from "./functions";
 import { seedIfEmpty } from "./seed";
 import { reactRuntime, getBrowserModule } from "./react";
+import { backfillVariants } from "./images";
 import { json } from "./db";
 import { mapType } from "./content";
 
@@ -131,6 +132,8 @@ async function mountAdmin() {
 async function start() {
   await mountAdmin();
   reactRuntime().catch((e) => console.error("[react] Couldn't build the React runtime:", e?.message ?? e));
+  // responsive copies for images uploaded before resizing existed (runs in the background)
+  setTimeout(() => void backfillVariants(true).catch((e) => console.error("[images]", e?.message ?? e)), 2000).unref();
 
   // ---------- public website (catch-all) ----------
   app.get(/.*/, async (req, res) => {

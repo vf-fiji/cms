@@ -17,6 +17,14 @@ export function mapMedia(r: any): MediaItem {
     alt: r.alt,
     title: r.title,
     url: `/media/${r.filename}`,
+    variants: (() => {
+      try {
+        return (JSON.parse(r.variants || "[]") as { w: number; file: string }[]).map((v) => ({ w: v.w, url: `/media/${v.file}` }));
+      } catch {
+        return [];
+      }
+    })(),
+    focal: r.focal || "",
     createdAt: r.created_at,
   };
 }

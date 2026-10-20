@@ -310,7 +310,7 @@ export const DEFAULT_DETAIL_TEMPLATE = `<article class="rf-article">
     <h1>{{ item.title }}</h1>
     {% if item.summary %}<p class="rf-lead">{{ item.summary }}</p>{% endif %}
   </header>
-  {% if item.image %}<img class="rf-article-image" src="{{ item.image }}" alt="">{% endif %}
+  {% if item.image %}<img class="rf-article-image" src="{{ item.image }}" srcset="{{ item.image | srcset }}" sizes="(max-width: 800px) 100vw, 760px" alt="" fetchpriority="high">{% endif %}
   <div class="rf-article-body">{{ item.body }}</div>
   {% if item.tags.size > 0 %}<div class="rf-tags">{% for t in item.tags %}<span>{{ t }}</span>{% endfor %}</div>{% endif %}
 </article>`;

@@ -3,6 +3,33 @@ import { escapeHtml as e, renderLiquid } from "./liquid";
 import { listPublishedItems } from "../content";
 import { all, get, json } from "../db";
 import { renderReactWidget } from "../react";
+import { bestVariant, dimensionsFor, focalFor, srcsetFor } from "../images";
+
+const CONTAINER: Record<string, number> = { narrow: 808, contained: 1128, wide: 1488 };
+
+/** `sizes` for an image filling `share` of the current column. */
+function sizesFor(ctx: RenderCtx, share = 1) {
+  const cols = ctx.layout?.colWidth ?? 12;
+  const width = ctx.layout?.sectionWidth ?? "contained";
+  const frac = (cols / 12) * share;
+  const wide = width === "full" ? `${Math.round(frac * 100)}vw` : `${Math.round((CONTAINER[width] ?? 1128) * frac)}px`;
+  return `(max-width: 860px) ${Math.round(100 * Math.min(1, share * 2))}vw, ${wide}`;
+}
+
+/** Responsive <img>: srcset from resized copies, intrinsic size, focal point. */
+function img(src: string, ctx: RenderCtx, opts: { alt?: string; share?: number; cls?: string; style?: string; eager?: boolean } = {}) {
+  const srcset = srcsetFor(src);
+  const focal = focalFor(src);
+  const dims = dimensionsFor(src);
+  const style = [opts.style, focal ? `object-position:${focal}` : ""].filter(Boolean).join(";");
+  return `<img src="${e(src)}"${srcset ? ` srcset="${e(srcset)}" sizes="${e(sizesFor(ctx, opts.share))}"` : ""}${dims ? ` width="${dims.width}" height="${dims.height}"` : ""} alt="${e(opts.alt ?? "")}" ${opts.eager ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async"${opts.cls ? ` class="${opts.cls}"` : ""}${style ? ` style="${e(style)}"` : ""}>`;
+}
+
+/** CSS for a background image, using a resized copy and the focal point. */
+function bgStyle(src: string) {
+  const focal = focalFor(src);
+  return `background-image:url('${bestVariant(src, 1600).replace(/'/g, "%27")}')${focal ? `;background-position:${focal}` : ""}`;
+}
 
 export interface RenderCtx {
   editor: boolean;
@@ -17,6 +44,8 @@ export interface RenderCtx {
   react: boolean;
   /** JS/JSX sources rendered in the browser, scanned for Tailwind classes */
   sources: string[];
+  /** where the widget being rendered sits, for responsive image sizes */
+  layout?: { sectionWidth: string; colWidth: number };
   nav: NavItem[];
   customWidgets?: Map<string, CustomWidget>;
 }
@@ -57,13 +86,14 @@ async function renderSection(s: SectionNode, ctx: RenderCtx): Promise<string> {
   ];
   const styles: string[] = [];
   if (p.background === "custom" && p.bgColor) styles.push(`background-color:${p.bgColor}`);
-  if (p.bgImage) styles.push(`background-image:url('${String(p.bgImage).replace(/'/g, "%27")}')`);
+  if (p.bgImage) styles.push(bgStyle(String(p.bgImage)));
   if (p.minHeight) styles.push(`min-height:${Number(p.minHeight)}px`);
   if (p.style) styles.push(String(p.style).replace(/[\n\r]/g, " "));
   const overlay = p.bgImage && Number(p.overlay ?? 40) > 0 ? `<div class="rf-overlay" style="opacity:${Number(p.overlay ?? 40) / 100}"></div>` : "";
   const cols: string[] = [];
   for (const c of s.columns ?? []) {
     const widgets: string[] = [];
+    ctx.layout = { sectionWidth: p.width || "contained", colWidth: Math.max(1, Math.min(12, c.width || 12)) };
     for (const w of c.widgets ?? []) widgets.push(await renderWidget(w, ctx));
     const empty = ctx.editor && !(c.widgets ?? []).length ? `<div class="rfe-empty-col">Drop widgets here</div>` : "";
     cols.push(
@@ -132,12 +162,16 @@ async function renderWidgetInner(w: WidgetNode, ctx: RenderCtx): Promise<string>
     case "image": {
       if (!p.src) return `<div class="rf-placeholder rf-placeholder-img">Choose an image</div>`;
       const style = p.ratio && p.ratio !== "auto" ? ` style="aspect-ratio:${e(p.ratio)};object-fit:cover"` : "";
-      let img = `<img src="${e(p.src)}" alt="${e(p.alt)}" loading="lazy"${style} class="${p.rounded ? "rf-rounded" : ""} ${p.shadow ? "rf-shadow" : ""}">`;
-      if (p.link) img = `<a href="${e(safeUrl(p.link))}">${img}</a>`;
-      return `<figure class="rf-figure">${img}${p.caption ? `<figcaption>${e(p.caption)}</figcaption>` : ""}</figure>`;
+      let tag = img(String(p.src), ctx, {
+        alt: p.alt,
+        cls: `${p.rounded ? "rf-rounded" : ""} ${p.shadow ? "rf-shadow" : ""}`.trim(),
+        style: p.ratio && p.ratio !== "auto" ? `aspect-ratio:${p.ratio};object-fit:cover` : "",
+      });
+      if (p.link) tag = `<a href="${e(safeUrl(p.link))}">${tag}</a>`;
+      return `<figure class="rf-figure">${tag}${p.caption ? `<figcaption>${e(p.caption)}</figcaption>` : ""}</figure>`;
     }
     case "hero": {
-      const bg = p.image ? ` style="background-image:url('${String(p.image).replace(/'/g, "%27")}')"` : "";
+      const bg = p.image ? ` style="${e(bgStyle(String(p.image)))}"` : "";
       return `<div class="rf-hero rf-hero-${p.height || "md"}${alignCls}${p.image ? " rf-has-image" : ""}"${bg}>${p.image ? `<div class="rf-overlay" style="opacity:${Number(p.overlay ?? 45) / 100}"></div>` : ""}<div class="rf-hero-inner">${p.eyebrow ? `<div class="rf-eyebrow">${e(p.eyebrow)}</div>` : ""}<h1>${e(p.title)}</h1>${p.subtitle ? `<p class="rf-hero-sub">${e(p.subtitle)}</p>` : ""}<div class="rf-buttons">${buttons(
         [
           { label: p.ctaLabel, url: p.ctaUrl, variant: "primary" },
@@ -147,9 +181,9 @@ async function renderWidgetInner(w: WidgetNode, ctx: RenderCtx): Promise<string>
       )}</div></div></div>`;
     }
     case "card": {
-      const img = p.image ? `<div class="rf-card-img"><img src="${e(p.image)}" alt="" loading="lazy"></div>` : "";
+      const cardImg = p.image ? `<div class="rf-card-img">${img(String(p.image), ctx)}</div>` : "";
       const link = p.url && p.linkLabel ? `<a class="rf-card-link" href="${e(safeUrl(p.url))}">${e(p.linkLabel)} →</a>` : "";
-      return `<article class="rf-card rf-card-${p.style || "elevated"}">${img}<div class="rf-card-body"><h3>${e(p.title)}</h3><p>${e(p.text)}</p>${link}</div></article>`;
+      return `<article class="rf-card rf-card-${p.style || "elevated"}">${cardImg}<div class="rf-card-body"><h3>${e(p.title)}</h3><p>${e(p.text)}</p>${link}</div></article>`;
     }
     case "features": {
       const items = (p.items ?? []) as any[];
@@ -160,12 +194,12 @@ async function renderWidgetInner(w: WidgetNode, ctx: RenderCtx): Promise<string>
     case "stats":
       return `<div class="rf-stats">${((p.items ?? []) as any[]).map((i) => `<div class="rf-stat"><strong>${e(i.value)}</strong><span>${e(i.label)}</span></div>`).join("")}</div>`;
     case "quote":
-      return `<blockquote class="rf-quote"><p>“${e(p.quote)}”</p><footer>${p.avatar ? `<img src="${e(p.avatar)}" alt="">` : `<span class="rf-avatar">${e(String(p.author ?? "?").slice(0, 1))}</span>`}<div><strong>${e(p.author)}</strong>${p.role ? `<span>${e(p.role)}</span>` : ""}</div></footer></blockquote>`;
+      return `<blockquote class="rf-quote"><p>“${e(p.quote)}”</p><footer>${p.avatar ? img(String(p.avatar), ctx, { share: 0.1 }) : `<span class="rf-avatar">${e(String(p.author ?? "?").slice(0, 1))}</span>`}<div><strong>${e(p.author)}</strong>${p.role ? `<span>${e(p.role)}</span>` : ""}</div></footer></blockquote>`;
     case "gallery": {
       const imgs = (p.images ?? []) as string[];
       if (!imgs.length) return `<div class="rf-placeholder rf-placeholder-img">Add images to the gallery</div>`;
       return `<div class="rf-gallery rf-grid-${p.columns || 3}"${p.lightbox ? " data-rf-lightbox" : ""}>${imgs
-        .map((src) => `<a href="${e(src)}" class="rf-gallery-item"><img src="${e(src)}" alt="" loading="lazy"></a>`)
+        .map((src) => `<a href="${e(src)}" class="rf-gallery-item">${img(src, ctx, { share: 1 / Number(p.columns || 3) })}</a>`)
         .join("")}</div>`;
     }
     case "video":
@@ -289,7 +323,7 @@ async function renderContentList(w: WidgetNode, ctx: RenderCtx) {
     const isGrid = p.layout !== "list";
     html = `<div class="${isGrid ? `rf-content-grid rf-grid-${p.columns || 3}` : "rf-content-list"}">${items
       .map(
-        (i) => `<article class="rf-content-card">${p.showImage && i.image ? `<a class="rf-content-img" href="${e(i.url)}"><img src="${e(i.image)}" alt="" loading="lazy"></a>` : ""}<div class="rf-content-body">${p.showDate ? `<time>${formatDate(i.date)}</time>` : ""}<h3><a href="${e(i.url) || "#"}">${e(i.title)}</a></h3>${p.showSummary && i.summary ? `<p>${e(i.summary)}</p>` : ""}${i.tags?.length ? `<div class="rf-tags">${i.tags.map((t: string) => `<span>${e(t)}</span>`).join("")}</div>` : ""}</div></article>`,
+        (i) => `<article class="rf-content-card">${p.showImage && i.image ? `<a class="rf-content-img" href="${e(i.url)}">${img(String(i.image), ctx, { share: isGrid ? 1 / Number(p.columns || 3) : 0.34 })}</a>` : ""}<div class="rf-content-body">${p.showDate ? `<time>${formatDate(i.date)}</time>` : ""}<h3><a href="${e(i.url) || "#"}">${e(i.title)}</a></h3>${p.showSummary && i.summary ? `<p>${e(i.summary)}</p>` : ""}${i.tags?.length ? `<div class="rf-tags">${i.tags.map((t: string) => `<span>${e(t)}</span>`).join("")}</div>` : ""}</div></article>`,
       )
       .join("")}</div>`;
   }

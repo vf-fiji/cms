@@ -201,10 +201,25 @@ export function Media() {
 
 function MediaDetails({ m, folders, onClose, onSaved, onDeleted }: { m: MediaItem; folders: string[]; onClose: () => void; onSaved: (m: MediaItem) => void; onDeleted: () => void }) {
   const { can } = useAuth();
-  const [form, setForm] = useState({ title: m.title, alt: m.alt, folder: m.folder });
+  const [form, setForm] = useState({ title: m.title, alt: m.alt, folder: m.folder, focal: m.focal });
   const [busy, setBusy] = useState(false);
-  useEffect(() => setForm({ title: m.title, alt: m.alt, folder: m.folder }), [m]);
-  const dirty = form.title !== m.title || form.alt !== m.alt || form.folder !== m.folder;
+  useEffect(() => setForm({ title: m.title, alt: m.alt, folder: m.folder, focal: m.focal }), [m]);
+  const dirty = form.title !== m.title || form.alt !== m.alt || form.folder !== m.folder || form.focal !== m.focal;
+  const isImage = m.mime.startsWith("image/");
+  const [fx, fy] = (form.focal || "50% 50%").split(" ").map((v) => parseFloat(v));
+  const pickFocal = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!can("media.manage")) return;
+    // the preview is object-fit: contain, so map the click onto the image itself
+    const el = e.currentTarget;
+    const r = el.getBoundingClientRect();
+    const scale = Math.min(r.width / el.naturalWidth, r.height / el.naturalHeight);
+    const w = el.naturalWidth * scale;
+    const h = el.naturalHeight * scale;
+    const x = ((e.clientX - r.left - (r.width - w) / 2) / w) * 100;
+    const y = ((e.clientY - r.top - (r.height - h) / 2) / h) * 100;
+    if (x < 0 || x > 100 || y < 0 || y > 100) return;
+    setForm({ ...form, focal: `${Math.round(x)}% ${Math.round(y)}%` });
+  };
   const save = async () => {
     setBusy(true);
     try {
@@ -246,8 +261,20 @@ function MediaDetails({ m, folders, onClose, onSaved, onDeleted }: { m: MediaIte
       }
     >
       <div className="media-thumb" style={{ borderRadius: 14, aspectRatio: "16/10", marginBottom: 18, border: "1px solid var(--border)" }}>
-        {m.mime.startsWith("image/") ? <img src={m.url} alt={m.alt} style={{ objectFit: "contain" }} /> : m.mime.startsWith("video/") ? <video src={m.url} controls style={{ width: "100%", height: "100%" }} /> : <MediaThumb m={m} />}
+        {isImage ? (
+          <div className="focal-picker">
+            <img src={m.url} alt={m.alt} style={{ objectFit: "contain", cursor: can("media.manage") ? "crosshair" : undefined }} onClick={pickFocal} />
+            <FocalDot x={fx} y={fy} imgUrl={m.url} />
+          </div>
+        ) : m.mime.startsWith("video/") ? <video src={m.url} controls style={{ width: "100%", height: "100%" }} /> : <MediaThumb m={m} />}
       </div>
+      {isImage && (
+        <div className="row subtle" style={{ fontSize: 12.5, marginTop: -8, marginBottom: 16 }}>
+          <Icon name="MousePointerClick" size={13} />
+          <span className="grow">{form.focal ? `Focal point ${form.focal}. Crops keep this spot in view.` : "Click the image to set a focal point for crops."}</span>
+          {form.focal && can("media.manage") && <Button size="sm" variant="ghost" onClick={() => setForm({ ...form, focal: "" })}>Reset</Button>}
+        </div>
+      )}
       <Field label="Title">
         <input className="input" value={form.title} disabled={!can("media.manage")} onChange={(e) => setForm({ ...form, title: e.target.value })} />
       </Field>
@@ -275,9 +302,34 @@ function MediaDetails({ m, folders, onClose, onSaved, onDeleted }: { m: MediaIte
         <div><div className="subtle">Type</div><div>{m.mime}</div></div>
         <div><div className="subtle">Size</div><div>{bytes(m.size)}</div></div>
         <div><div className="subtle">Dimensions</div><div>{m.width ? `${m.width} × ${m.height}px` : "—"}</div></div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <div className="subtle">Responsive sizes</div>
+          <div>{m.variants.length ? `${m.variants.map((v) => `${v.w}px`).join(", ")} WebP copies, used automatically on smaller screens` : isImage && m.mime !== "image/svg+xml" && m.mime !== "image/gif" ? "Original only (already small)" : "Not needed for this file type"}</div>
+        </div>
         <div><div className="subtle">Uploaded</div><div>{formatDate(m.createdAt, true)}</div></div>
         <div><a href={m.url} target="_blank" rel="noreferrer" className="row" style={{ gap: 4 }}>Open original <Icon name="ExternalLink" size={13} /></a></div>
       </div>
     </Drawer>
   );
+}
+
+/** Marker over the preview, positioned on the image (which is letterboxed inside the frame). */
+function FocalDot({ x, y, imgUrl }: { x: number; y: number; imgUrl: string }) {
+  const [box, setBox] = useState<{ l: number; t: number; w: number; h: number } | null>(null);
+  useEffect(() => {
+    const probe = new Image();
+    probe.onload = () => {
+      const frame = document.querySelector(".focal-picker") as HTMLElement | null;
+      if (!frame) return;
+      const fw = frame.clientWidth;
+      const fh = frame.clientHeight;
+      const s = Math.min(fw / probe.naturalWidth, fh / probe.naturalHeight);
+      const w = probe.naturalWidth * s;
+      const h = probe.naturalHeight * s;
+      setBox({ l: (fw - w) / 2, t: (fh - h) / 2, w, h });
+    };
+    probe.src = imgUrl;
+  }, [imgUrl]);
+  if (!box || Number.isNaN(x) || Number.isNaN(y)) return null;
+  return <span className="focal-dot" style={{ left: box.l + (box.w * x) / 100, top: box.t + (box.h * y) / 100 }} aria-hidden="true" />;
 }

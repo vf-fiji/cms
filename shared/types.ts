@@ -143,6 +143,10 @@ export interface MediaItem {
   alt: string;
   title: string;
   url: string;
+  /** resized WebP copies, narrowest first */
+  variants: { w: number; url: string }[];
+  /** CSS position of the focal point, e.g. "30% 20%" ("" = centre) */
+  focal: string;
   createdAt: string;
 }
 

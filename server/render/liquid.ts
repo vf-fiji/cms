@@ -1,6 +1,7 @@
 import { Liquid } from "liquidjs";
 import { listPublishedItems, getPublishedItem } from "../content";
 import { mediaUrl } from "../media";
+import { bestVariant, srcsetFor } from "../images";
 
 export const liquid = new Liquid({
   cache: false,
@@ -13,6 +14,10 @@ export const liquid = new Liquid({
 
 liquid.registerFilter("json", (v: unknown, indent?: number) => JSON.stringify(v ?? null, null, indent ?? 0));
 liquid.registerFilter("media_url", (v: unknown) => mediaUrl(String(v ?? "")));
+/** <img src="{{ x.image }}" srcset="{{ x.image | srcset }}" sizes="100vw"> */
+liquid.registerFilter("srcset", (v: unknown) => srcsetFor(String(v ?? "")));
+/** {{ x.image | image_url: 960 }} → the smallest resized copy at least 960px wide */
+liquid.registerFilter("image_url", (v: unknown, width = 1600) => bestVariant(String(v ?? ""), Number(width) || 1600));
 liquid.registerFilter("excerpt", (v: unknown, words = 30) => {
   const text = String(v ?? "")
     .replace(/<[^>]+>/g, " ")
