@@ -245,18 +245,20 @@ Form posts made without JavaScript get a short HTML page instead of JSON. Many m
 
 | Area | Reef | Sitefinity equivalent |
 |---|---|---|
-| **Page editor** | Drag widgets and column layouts onto a live, server-rendered canvas. Click to select, double-click to type inline, plus undo/redo, copy/paste, keyboard shortcuts, desktop/tablet/phone preview and autosave. | Page editor + layout widgets |
-| **Widgets** | 20 built in: heading, text, button, image, hero, card, feature grid, stats, quote, gallery (lightbox), video, map, accordion, tabs, content list, form, navigation, spacer, divider, code block, React block. | Built-in widgets |
+| **Page editor** | Drag widgets and column layouts onto a live, server-rendered canvas. Click to select, double-click to type inline, plus undo/redo, copy/paste, keyboard shortcuts, desktop/tablet/phone preview and autosave. On a phone the canvas fills the screen and the panels open as bottom sheets. | Page editor + layout widgets |
+| **Widgets** | 22 built in: heading, text, button, image, hero, card, feature grid, stats, quote, gallery (lightbox), video, map, accordion, tabs, content list, form, navigation, search, spacer, divider, code block, React block. | Built-in widgets |
 | **Custom widgets** | Written in Code Studio as **Liquid templates** or **React components**. Fields defined as JSON become an editor-friendly inspector. | Custom widgets / MVC widgets |
 | **React** | JSX compiled on the server by esbuild. Custom React widgets are server-rendered for SEO, then hydrated. React blocks can go on any page. Any npm package can be imported (resolved via esm.sh, sharing Reef's React). | .NET Core / Next.js renderer |
 | **Content types** | Visual builder with 19 field types (text, rich text, image, gallery, reference, repeater, code…), optional detail pages at `/prefix/slug` with a Liquid template, and drag-to-reorder fields. | Module Builder |
 | **Content** | Search, status filters, bulk publish/unpublish/delete, manual drag ordering, tags and categories, scheduling, revisions with restore. | Content modules |
-| **Media** | Folders, drag-and-drop upload anywhere on screen, alt-text prompts, usage check before delete. Files are validated by signature. | Libraries |
+| **Media** | Folders, drag-and-drop upload anywhere on screen, alt-text prompts, usage check before delete. Files are validated by signature. Images get WebP copies at 480–2400px, served with `srcset`/`sizes`, and a focal point you click to set keeps the subject in frame when images are cropped. | Libraries + image thumbnails |
 | **Forms** | Visual builder, responses inbox (read/unread), CSV export, honeypot spam check, email notifications, hooks. | Forms |
 | **Templates** | Liquid HTML/CSS/JS/head, one default plus any number of alternates. | Page templates |
 | **Code Studio** | IDE with tabs, syntax highlighting, Ctrl+S, site-wide CSS/JS/HTML files, widgets, and **server functions**: API endpoints (`/api/fn/<route>`), event hooks (before/after content save, publish, form submit, upload) and scheduled jobs, with a test runner and logs. | Custom code + deployment |
 | **Workflow** | Draft → Publish, "Changes pending" on live pages, discard changes, Authors' publishes go to review, scheduled publishing, full revision history. | Workflow + revision history |
-| **Users & roles** | 12 permissions, 4 built-in roles, custom roles, temporary-password onboarding. | Roles & permissions |
+| **Users & roles** | 13 permissions, 4 built-in roles, custom roles, temporary-password onboarding, two-factor sign-in with an authenticator app and recovery codes (optionally required for everyone), password reset by email. | Roles & permissions |
+| **Site search** | Full-text search (SQLite FTS5) over published pages and content with ranked, highlighted results: a Search widget for pages and `/api/public/search` for headless sites. | Site search |
+| **Operations** | Docker image, health check, consistent online backups with a schedule and off-site copy, restore, error log, webhook alerts, page cache, Settings → System health. | Hosting / system status |
 | **SEO** | Meta title/description, social image, canonical, noindex, search-result preview, sitemap.xml, robots.txt, redirects with hit counts. | SEO + redirects |
 | **Headless** | `/api/public/content/:type`, `/api/public/pages`, `/api/public/site`, `/api/public/search?q=`. | Web services |
 | **Tailwind CSS** | Tailwind v4 utilities work in Code blocks, Liquid and React widgets, templates and every block's class field. The server compiles only the classes each page uses, including ones in React/JS sources, and the editor canvas updates as you type. Brand colours are `bg-primary` / `text-accent`. Add `@theme` tokens and `@utility` classes in Settings → Tailwind CSS (checked before saving). Preflight is optional. | Custom CSS / themes |
@@ -271,8 +273,10 @@ Form posts made without JavaScript get a short HTML page instead of JSON. Many m
 {% assign news = 'news' | content: 3 %}
 {% for n in news %}<a href="{{ n.url }}">{{ n.title }}</a>{% endfor %}
 
-{% assign data = 'headlines' | fn %}   {# calls a server function #}
+{% assign data = 'headlines' | fn %}   {# calls a public server function #}
 ```
+
+`{{ }}` output is HTML-escaped, so a title like `<b>Hi</b>` shows as text. Page `{{ content }}` and rich text fields (already cleaned of scripts) print as HTML. To print other HTML you trust, add `| raw`, e.g. `<script>const data = {{ data | json | raw }};</script>` (`json` always writes `<` as `\u003c`, so it can't close the script tag). The `fn` filter only calls **public** endpoints, so signed-in-only data can't end up on a public page.
 
 **React custom widget** (Code Studio → Widgets → +, choose React). The widget's fields arrive as props.
 
@@ -298,7 +302,7 @@ The `cms` object provides `content.list/get/create/update`, `forms.submissions`,
 ## Tests
 
 ```sh
-npm test          # about 180 tests, a few seconds
+npm test          # about 245 tests, under 30 seconds
 npm run typecheck
 ```
 
@@ -311,6 +315,12 @@ Tests use Node's built-in runner and live in `tests/*.suite.ts`. The `.suite.ts`
 - `tailwind.suite.ts`: class extraction, per-page compilation, brand colours, custom theme CSS, Preflight, cascade layers.
 - `layout.suite.ts`: the page editor's layout-tree operations.
 - `sitegraph.suite.ts`: the site map graph (hierarchy, content, forms, link detection, de-duplication).
+- `images.suite.ts`: responsive image variants, `srcset`/`sizes`, focal points and clean-up.
+- `twofa.suite.ts`: TOTP (RFC 6238 vectors), recovery codes, the two-step sign-in, replay and lockout, required 2FA and admin resets.
+- `search.suite.ts`: indexing published pages and items, ranking, highlighting, escaping, the widget and the rate limit.
+- `cache.suite.ts`: the page cache (hits, invalidation from the API and from another database connection, drafts, uncacheable renders).
+- `security.suite.ts`: rich text cleaning, the "Add code to pages" permission, publish-rights rules, escaping, form redirects, role escalation, limits, private endpoints, session revocation and per-account lockout.
+- `logging.suite.ts`: the error log, webhook alerts and throttling, scheduled backups and the off-site copy hook, System health.
 - `ops.suite.ts`: deployment features. Reset tokens (hashed storage, single use, expiry, invalidation), the full forgot/reset flow over HTTP against a fake SMTP server, form notification emails (address checks, header injection, forms that don't store responses, a slow and failing mail server), `npm run backup` on a running server followed by a restore, rate limits on forms, `/api/fn` and reset requests, and per-visitor counting behind a trusted proxy.
 
 ## Architecture
@@ -328,12 +338,22 @@ Every page declares cascade layers up front: `theme, base, reef, components, uti
 
 ## Security notes
 
-- Passwords use scrypt. Sessions use HTTP-only SameSite cookies (`Secure` in production), writes require a CSRF token, and sign-in is throttled.
+- Passwords use scrypt. Sessions use HTTP-only SameSite cookies (`Secure` in production) and writes require a CSRF token. Sign-in is throttled per client (5 tries a minute; IPv6 counted per /64) **and per account** (10 wrong passwords or codes in 15 minutes pauses that account, and alerts). Changing your password or turning on 2FA signs out your other sessions.
+- Two-factor sign-in (TOTP) can be required for everyone. Codes can't be reused, and recovery codes are single-use and stored hashed.
+- **Who can add code:** scripts on pages (Code and React blocks, page JavaScript, `<head>` tags) need the **Add code to pages** permission. Administrators, Developers and Editors have it; Authors don't. Without it, people can still edit text, move existing code blocks and edit everything else. Rich text is cleaned of scripts, event handlers and `javascript:` links for everyone.
+- **Publishing:** without publish rights, people can't schedule a page or item to publish, change the address of a live page, delete live pages or items, or edit live content items (items have no separate draft copy yet; unpublish first or ask an editor).
+- **Users and roles:** someone with "Manage users and roles" can't create a role, or give someone a role, with permissions they don't have themselves, and can't reset the password or 2FA of someone with more access.
+- Liquid escapes output by default (see [For developers](#for-developers)). Form "redirect after submit" must be a path on the site or an http(s) address.
+- Public pages have one address each: `/About/` redirects to `/about`, so views, the page cache and search engines agree.
+- Headers: `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options: SAMEORIGIN` plus `frame-ancestors 'self'`, and HSTS in production over HTTPS. Uploaded SVGs are served with a script-blocking CSP. `/sitemap.xml` and `robots.txt` use `REEF_PUBLIC_URL`, not the Host header.
+- **Same origin:** the admin, the editor canvas, draft previews and the public site share one origin, so code that runs on a page (added by someone with "Add code to pages", or a developer) runs with the session of an admin who views it. That's why code access is a separate permission. For stronger isolation, serve the public site and the admin from different hostnames.
 - Password reset links are single-use, expire, are stored only as hashes, and are built from `REEF_PUBLIC_URL`, never the request's Host header. See [Password recovery](#password-recovery).
-- Public form submissions, `/api/fn/*` and reset requests are rate-limited per IP. See [Rate limits](#rate-limits), and set `REEF_TRUST_PROXY` correctly behind a proxy.
-- Server functions and React SSR run in a separate V8 context with CPU timeouts. Synchronous work is cut off after 1 second. Work after an `await` only has a 10-second wall-clock limit, which can't interrupt a busy loop. **This is not a security sandbox.** Only give the `code.edit` permission to people you'd trust with server access. React *blocks* placed by page editors render in the browser only. Server-side rendering is limited to developer-authored widgets.
-- Page editors can add client-side HTML/JS through the Code block, as in most CMSs. Remove `pages.edit` from roles that shouldn't.
+- Public form submissions, `/api/fn/*`, search and reset requests are rate-limited per IP. See [Rate limits](#rate-limits), and set `REEF_TRUST_PROXY` correctly behind a proxy. Signed-in-only `/api/fn/*` endpoints need the CSRF token for writes and respect "require 2FA".
+- Server functions run in a pool of worker threads with a memory cap (`REEF_FN_MEMORY_MB`) and a time limit (`REEF_FN_TIMEOUT_MS`); a function that runs too long or uses too much memory is stopped and its worker replaced, so it can't stall the site. **This is not a security sandbox:** functions can read and write the database. Only give `code.edit` to people you'd trust with server access. React *blocks* placed by page editors render in the browser only; server-side rendering is limited to developer-authored widgets.
+- `npm audit` reports no known vulnerabilities in dependencies (checked October 2026).
 
 ## Not built yet
 
-These are honest gaps against Sitefinity: multilingual content, personalization/A-B testing, multi-site, image resizing/cropping and responsive `srcset`, a full-text search index, and SSO. Form notification emails are plain text with no per-form template or HTML version; use a `form.submitted` hook if you need more. Drag-and-drop in the page editor was verified with synthetic drag events, not a physical mouse.
+These are honest gaps against Sitefinity: multilingual content, personalization/A-B testing, multi-site, SSO (SAML/OIDC), and importing content from another CMS. Form notification emails are plain text with no per-form template or HTML version; use a `form.submitted` hook if you need more. Image cropping is by focal point only (no free-form crop tool).
+
+Drag-and-drop in the page editor has been checked by hand with a real mouse. The admin and public site pass an axe-core scan (WCAG 2.1 AA rules) in light and dark themes, but no one has tested them with a screen reader yet.

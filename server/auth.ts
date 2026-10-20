@@ -133,20 +133,44 @@ export function requirePerm(...perms: Permission[]) {
   };
 }
 
-// Simple in-memory login throttle.
+// In-memory sign-in throttle. Callers check two keys: one per client address (5 tries a minute)
+// and one per account (10 tries in 15 minutes), so guesses can't be spread across many addresses.
 const attempts = new Map<string, { count: number; until: number }>();
-export function checkThrottle(key: string) {
+export const PER_CLIENT = { max: 5, windowMs: 60_000 };
+export const PER_ACCOUNT = { max: 10, windowMs: 15 * 60_000 };
+
+export function checkThrottle(key: string, limit = PER_CLIENT, what = "attempts") {
   const a = attempts.get(key);
-  if (a && a.until > Date.now() && a.count >= 5) {
+  if (a && a.until > Date.now() && a.count >= limit.max) {
     const secs = Math.ceil((a.until - Date.now()) / 1000);
-    throw new HttpError(429, `Too many attempts. Try again in ${secs} seconds.`);
+    throw new HttpError(429, `Too many ${what}. Try again in ${secs > 90 ? `${Math.ceil(secs / 60)} minutes` : `${secs} seconds`}.`);
   }
 }
-export function recordFailure(key: string) {
+/** Returns true when this failure reached the limit (so the caller can raise an alert once). */
+export function recordFailure(key: string, limit = PER_CLIENT): boolean {
+  const t = Date.now();
+  if (attempts.size > 20_000) for (const [k, v] of attempts) if (v.until < t) attempts.delete(k);
+  if (attempts.size > 50_000) attempts.clear(); // under a flood of made-up emails, forget rather than grow
   const a = attempts.get(key);
-  if (!a || a.until < Date.now()) attempts.set(key, { count: 1, until: Date.now() + 60_000 });
-  else a.count++;
+  if (!a || a.until < t) {
+    attempts.set(key, { count: 1, until: t + limit.windowMs });
+    return limit.max === 1;
+  }
+  a.count++;
+  return a.count === limit.max;
 }
 export function clearFailures(key: string) {
   attempts.delete(key);
+}
+/** The client address for throttling: IPv6 clients usually control a whole /64, so count it as one. */
+export function clientKey(req: Request) {
+  const ip = String(req.ip ?? "");
+  if (!ip.includes(":") || ip.startsWith("::ffff:")) return ip.replace(/^::ffff:/, "");
+  return `${ip.split(":").slice(0, 4).join(":")}::/64`;
+}
+
+/** Signs a user out everywhere except the session making this request. */
+export function revokeOtherSessions(req: Request, userId: number) {
+  const token = readCookie(req, SESSION_COOKIE);
+  run("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?", userId, token ? sha(token) : "");
 }

@@ -241,6 +241,23 @@ addColumn("users", "totp_enabled", "INTEGER NOT NULL DEFAULT 0");
 addColumn("users", "totp_recovery", "TEXT NOT NULL DEFAULT '[]'");
 addColumn("users", "totp_last_step", "INTEGER NOT NULL DEFAULT 0");
 
+// "pages.code" split script access out of "pages.edit". Roles that could already publish pages
+// or write code keep it; authors without either lose the ability to add scripts to pages.
+db.exec(`CREATE TABLE IF NOT EXISTS reef_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)`);
+function once(name: string, fn: () => void) {
+  if (db.prepare("SELECT 1 FROM reef_migrations WHERE name = ?").get(name)) return;
+  fn();
+  db.prepare("INSERT INTO reef_migrations(name, applied_at) VALUES(?, ?)").run(name, new Date().toISOString());
+}
+once("pages.code-permission", () => {
+  for (const r of db.prepare("SELECT id, permissions FROM roles").all() as { id: number; permissions: string }[]) {
+    const perms: string[] = JSON.parse(r.permissions || "[]");
+    if (!perms.includes("pages.code") && (perms.includes("pages.publish") || perms.includes("code.edit"))) {
+      db.prepare("UPDATE roles SET permissions = ? WHERE id = ?").run(JSON.stringify([...perms, "pages.code"]), r.id);
+    }
+  }
+});
+
 type Params = (string | number | bigint | null | Uint8Array)[];
 
 export function all<T = any>(sql: string, ...params: any[]): T[] {

@@ -238,6 +238,7 @@ export interface ServerFunction {
 export type Permission =
   | "pages.edit"
   | "pages.publish"
+  | "pages.code"
   | "content.edit"
   | "content.publish"
   | "content.types"
@@ -252,6 +253,7 @@ export type Permission =
 export const ALL_PERMISSIONS: { key: Permission; label: string; group: string }[] = [
   { key: "pages.edit", label: "Create and edit pages", group: "Pages" },
   { key: "pages.publish", label: "Publish pages", group: "Pages" },
+  { key: "pages.code", label: "Add code to pages (Code and React blocks, page JavaScript, <head> tags)", group: "Pages" },
   { key: "content.edit", label: "Create and edit content", group: "Content" },
   { key: "content.publish", label: "Publish content", group: "Content" },
   { key: "content.types", label: "Design content types", group: "Content" },

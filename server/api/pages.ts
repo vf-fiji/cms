@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { all, get, run, json, now, logActivity, saveRevision, slugify, tx } from "../db";
 import { requirePerm, can, HttpError } from "../auth";
 import { str, idParam, notFound } from "../http";
@@ -156,6 +156,11 @@ pages.put("/pages/:id", requirePerm("pages.edit"), (req, res) => {
   const slug = b.slug !== undefined ? uniqueSlug(parentId, slugify(String(b.slug) || title), id) : row.slug;
   const layout = b.layout !== undefined ? JSON.stringify(b.layout) : row.layout;
   if (layout.length > 2_000_000) throw new HttpError(413, "This page is too large to save. Split it into smaller pages.");
+  assertCodeUnchanged(req, row, b, layout);
+  if (b.publishAt && b.publishAt !== row.publish_at && !can(req, "pages.publish")) throw new HttpError(403, "Scheduling a page to publish needs permission to publish pages. Send it for review instead.");
+  if (row.published && (slug !== row.slug || parentId !== row.parent_id) && !can(req, "pages.publish")) {
+    throw new HttpError(403, "This page is live, so moving it or changing its address needs permission to publish pages.");
+  }
   // A live page keeps "published"; pending edits show via hasUnpublishedChanges.
   const status = row.status === "review" ? "review" : row.published ? "published" : "draft";
   const updatedAt = now();
@@ -184,6 +189,27 @@ pages.put("/pages/:id", requirePerm("pages.edit"), (req, res) => {
   }
   res.json(loadPage(id));
 });
+
+// Raw HTML/JS that runs in visitors' (and editors') browsers. Only people with "pages.code" may add or change it.
+const CODE_WIDGETS = new Set(["html", "react"]);
+function codeBlocks(layoutJson: string): string {
+  const out: string[] = [];
+  try {
+    const l = JSON.parse(layoutJson);
+    for (const s of l?.sections ?? []) for (const c of s?.columns ?? []) for (const w of c?.widgets ?? []) if (CODE_WIDGETS.has(w?.type)) out.push(JSON.stringify([w.type, w.props ?? {}]));
+  } catch {
+    // an unparseable layout has no code blocks
+  }
+  return out.sort().join("\n");
+}
+function assertCodeUnchanged(req: Request, row: any, b: any, layout: string) {
+  if (can(req, "pages.code")) return;
+  const changed =
+    (b.customHead !== undefined && b.customHead !== row.custom_head) ||
+    (b.customJs !== undefined && b.customJs !== row.custom_js) ||
+    codeBlocks(layout) !== codeBlocks(row.layout);
+  if (changed) throw new HttpError(403, "Adding or changing Code blocks, React blocks, page JavaScript or <head> tags needs the “Add code to pages” permission.", { needsPermission: "pages.code" });
+}
 
 export function publishPage(id: number, userId: number | null) {
   const row = get("SELECT * FROM pages WHERE id = ?", id) ?? notFound("Page");
@@ -308,7 +334,8 @@ pages.put("/pages-order", requirePerm("pages.edit"), (req, res) => {
 
 pages.delete("/pages/:id", requirePerm("pages.edit"), (req, res) => {
   const id = idParam(req.params.id);
-  const row = get("SELECT title, is_home FROM pages WHERE id = ?", id) ?? notFound("Page");
+  const row = get("SELECT title, is_home, published FROM pages WHERE id = ?", id) ?? notFound("Page");
+  if (row.published && !can(req, "pages.publish")) throw new HttpError(403, "This page is live, so deleting it needs permission to publish pages.");
   if (row.is_home) throw new HttpError(400, "This is the homepage. Choose another homepage before deleting it.");
   const children = get("SELECT COUNT(*) n FROM pages WHERE parent_id = ?", id)!.n;
   if (children && req.query.withChildren !== "1") throw new HttpError(409, `This page has ${children} sub-page${children > 1 ? "s" : ""}. Delete them too?`, { children });

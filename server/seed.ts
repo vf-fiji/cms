@@ -237,7 +237,7 @@ export function seedIfEmpty() {
       "INSERT INTO roles(name, description, permissions, is_system) VALUES(?,?,?,1)",
       "Editor",
       "Creates and publishes pages, content, media and forms.",
-      JSON.stringify(["pages.edit", "pages.publish", "content.edit", "content.publish", "media.manage", "forms.manage", "forms.submissions"]),
+      JSON.stringify(["pages.edit", "pages.publish", "pages.code", "content.edit", "content.publish", "media.manage", "forms.manage", "forms.submissions"]),
     );
     run(
       "INSERT INTO roles(name, description, permissions, is_system) VALUES(?,?,?,1)",

@@ -23,6 +23,7 @@ import { reactRuntime, getBrowserModule } from "./react";
 import { backfillVariants } from "./images";
 import { json } from "./db";
 import { mapType } from "./content";
+import { escapeHtml } from "./render/liquid";
 import { installProcessHandlers, logError } from "./log";
 import { startBackupSchedule } from "./backup-schedule";
 
@@ -45,8 +46,12 @@ app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
+  // only over HTTPS, so a plain-HTTP dev or test setup never gets pinned
+  if (isProd && req.secure) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   next();
 });
+
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(loadUser);
@@ -107,13 +112,16 @@ app.get("/preview/item/:id", async (req, res) => {
 });
 const PREVIEW_BAR = `<div style="position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:99999;background:#18181b;color:#fff;font:500 13px/1 system-ui;padding:10px 16px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.3);display:flex;gap:12px;align-items:center"><span style="width:8px;height:8px;border-radius:50%;background:#f59e0b"></span>Draft preview — visitors can't see unpublished changes<a href="javascript:window.close()" style="color:#a5b4fc">Close</a></div>`;
 
+/** The public address: REEF_PUBLIC_URL when set (the Host header can be forged), else this request's. */
+const siteOrigin = (req: Request) => process.env.REEF_PUBLIC_URL?.replace(/\/+$/, "") || `${req.protocol}://${req.get("host")}`;
+
 app.get("/sitemap.xml", (req, res) => {
   if (!getSettings().sitemapEnabled) throw new HttpError(404, "Not found");
-  res.type("application/xml").send(sitemapXml(`${req.protocol}://${req.get("host")}`));
+  res.type("application/xml").send(sitemapXml(siteOrigin(req)));
 });
 app.get("/robots.txt", (req, res) => {
   const s = getSettings();
-  res.type("text/plain").send(`${s.robotsTxt}${s.sitemapEnabled ? `\nSitemap: ${req.protocol}://${req.get("host")}/sitemap.xml\n` : ""}`);
+  res.type("text/plain").send(`${s.robotsTxt}${s.sitemapEnabled ? `\nSitemap: ${siteOrigin(req)}/sitemap.xml\n` : ""}`);
 });
 
 // ---------- admin app ----------
@@ -151,18 +159,32 @@ async function start() {
 
   // ---------- errors ----------
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-    const status = err instanceof HttpError ? err.status : err?.type === "entity.too.large" ? 413 : err?.code === "LIMIT_FILE_SIZE" ? 413 : 500;
+    // body-parser and friends set err.status for bad requests (malformed JSON etc.), and a malformed
+    // %-escape in the URL throws URIError. Those are the client's problem, not errors to log.
+    const clientStatus = Number(err?.status ?? err?.statusCode);
+    const status =
+      err instanceof HttpError
+        ? err.status
+        : err?.type === "entity.too.large" || err?.code === "LIMIT_FILE_SIZE"
+          ? 413
+          : err instanceof URIError
+            ? 400
+            : clientStatus >= 400 && clientStatus < 500
+              ? clientStatus
+              : 500;
     const message =
       err instanceof HttpError
         ? err.message
         : status === 413
           ? "That's too large to upload. The limit is 50 MB per file."
-          : "Something went wrong on our side. The error has been logged.";
+          : status < 500
+            ? "That request wasn't valid."
+            : "Something went wrong on our side. The error has been logged.";
     if (status === 500) logError("server", err, { method: req.method, path: req.path });
     if (req.path.startsWith("/api/") || req.headers.accept?.includes("application/json")) {
       return res.status(status).json({ error: message, details: err instanceof HttpError ? err.details : undefined });
     }
-    res.status(status).type("html").send(`<!doctype html><title>${status}</title><body style="font-family:system-ui;padding:48px;color:#18181b"><h1>${status === 404 ? "Not found" : "Something went wrong"}</h1><p>${message}</p><p><a href="/">Home</a></p>`);
+    res.status(status).type("html").send(`<!doctype html><title>${status}</title><body style="font-family:system-ui;padding:48px;color:#18181b"><h1>${status === 404 ? "Not found" : "Something went wrong"}</h1><p>${escapeHtml(message)}</p><p><a href="/">Home</a></p>`);
   });
 
   server.listen(PORT, HOST, () => {
@@ -193,7 +215,13 @@ async function tick() {
     }
   }
   await runDueSchedules().catch((e) => logError("scheduler", e));
+  // expired sessions are refused already; this just keeps the table small
+  if (Date.now() - lastSessionPurge > 3_600_000) {
+    lastSessionPurge = Date.now();
+    run("DELETE FROM sessions WHERE expires_at < ?", new Date().toISOString());
+  }
 }
+let lastSessionPurge = 0;
 setInterval(() => void tick(), 30_000).unref();
 
 // ---------- graceful shutdown (docker stop, Ctrl+C) ----------

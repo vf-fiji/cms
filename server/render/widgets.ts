@@ -1,5 +1,6 @@
 import type { WidgetNode, SectionNode, PageLayout, FormDef, CustomWidget } from "../../shared/types";
-import { escapeHtml as e, renderLiquid } from "./liquid";
+import { sanitizeRichText } from "../sanitize";
+import { escapeHtml as e, renderLiquid, SafeHtml, liquidItem } from "./liquid";
 import { listPublishedItems } from "../content";
 import { all, get, json } from "../db";
 import { renderReactWidget } from "../react";
@@ -164,7 +165,7 @@ async function renderWidgetInner(w: WidgetNode, ctx: RenderCtx): Promise<string>
       return `<div class="rf-heading${alignCls}">${eyebrow}<${lvl}${p.color ? attr("style", `color:${p.color}`) : ""}${ctx.editor ? ' data-rf-inline="text"' : ""}>${e(p.text)}</${lvl}></div>`;
     }
     case "text":
-      return `<div class="rf-text rf-text-${p.size || "md"}${alignCls}"${ctx.editor ? ' data-rf-inline="html"' : ""}>${p.html ?? ""}</div>`;
+      return `<div class="rf-text rf-text-${p.size || "md"}${alignCls}"${ctx.editor ? ' data-rf-inline="html"' : ""}>${sanitizeRichText(p.html)}</div>`;
     case "button":
       return `<div class="rf-buttons${alignCls}">${buttons(
         [
@@ -294,7 +295,9 @@ async function renderWidgetInner(w: WidgetNode, ctx: RenderCtx): Promise<string>
         return out.html;
       }
       if (cw.js && !ctx.editor) ctx.js.set(`cw-${cw.key}`, `(function(){\n${cw.js}\n})();`);
-      const props = { ...Object.fromEntries(cw.fields.map((f) => [f.key, f.default ?? ""])), ...p };
+      const props: Record<string, unknown> = { ...Object.fromEntries(cw.fields.map((f) => [f.key, f.default ?? ""])), ...p };
+      // rich text props are cleaned and printable; everything else is escaped when printed
+      for (const f of cw.fields) if (f.type === "richtext") props[f.key] = new SafeHtml(sanitizeRichText(props[f.key]));
       return await renderLiquid(cw.template, { props, widget: { id: w.id, type: w.type }, site: ctx.site, page: ctx.page, nav: ctx.nav, query: ctx.query });
     }
   }
@@ -343,7 +346,7 @@ async function renderContentList(w: WidgetNode, ctx: RenderCtx) {
   if (!items.length) return `<div class="rf-empty">${ctx.editor ? `No published ${e(type.name.toLowerCase())} yet.` : "Nothing here yet."}</div>`;
   let html = "";
   if (p.layout === "custom") {
-    html = await renderLiquid(String(p.template ?? ""), { items, type: { key: type.key, name: type.name }, site: ctx.site, page: ctx.page });
+    html = await renderLiquid(String(p.template ?? ""), { items: items.map(liquidItem), type: { key: type.key, name: type.name }, site: ctx.site, page: ctx.page });
   } else if (p.layout === "compact") {
     html = `<ul class="rf-compact-list">${items.map((i) => `<li><a href="${e(i.url)}">${e(i.title)}</a>${p.showDate ? `<time>${formatDate(i.date)}</time>` : ""}</li>`).join("")}</ul>`;
   } else {

@@ -2,7 +2,7 @@ import { all, get, json, getSettings, run, tx } from "../db";
 import { cachedRender } from "./cache";
 import type { PageLayout, PageSeo, Template, CodeAsset } from "../../shared/types";
 import { renderLayout, type RenderCtx, type NavItem } from "./widgets";
-import { renderLiquid, escapeHtml as e } from "./liquid";
+import { renderLiquid, escapeHtml as e, SafeHtml, liquidItem } from "./liquid";
 import { getTypeByKey, itemForTemplate, mapItem, itemUrl } from "../content";
 import { all as allRows } from "../db";
 import { IMPORT_MAP } from "../react";
@@ -138,7 +138,7 @@ export async function renderDocument(input: DocInput): Promise<string> {
     site,
     page: pageVars,
     nav: input.ctx.nav,
-    content,
+    content: new SafeHtml(content),
     year: new Date().getFullYear(),
     query: input.ctx.query,
   });
@@ -256,11 +256,19 @@ export async function renderPublicPath(path: string, query: Record<string, strin
   return result;
 }
 
-async function renderPath(path: string, query: Record<string, string>): Promise<{ status: number; html?: string }> {
+const queryString = (query: Record<string, string>) => {
+  const s = new URLSearchParams(query as Record<string, string>).toString();
+  return s ? `?${s}` : "";
+};
+
+async function renderPath(path: string, query: Record<string, string>): Promise<{ status: number; html?: string; redirect?: string }> {
   const page = findPageByPath(path);
   if (page?.published) {
     const snap = json<PageSnapshot>(page.published, null as any);
     const paths = computePaths();
+    // one address per page (/About/ → /about), so views, caching and search engines agree
+    const canonical = paths.get(page.id) ?? path;
+    if (path !== canonical) return { status: 301, redirect: canonical + queryString(query) };
     const html = await renderPageSnapshot({ id: page.id, parentId: page.parent_id, slug: page.slug, path: paths.get(page.id) ?? path }, snap, { query });
     return { status: 200, html };
   }
@@ -274,6 +282,8 @@ async function renderPath(path: string, query: Record<string, string>): Promise<
       const type = getTypeByKey(t.key)!;
       const row = get("SELECT * FROM content_items WHERE type_id = ? AND slug = ? AND status = 'published'", type.id, decodeURIComponent(m[2]));
       if (row) {
+        const canonical = itemUrl(type, row);
+        if (path !== canonical) return { status: 301, redirect: canonical + queryString(query) };
         const html = await renderContentDetail(type.key, row, query, false);
         return { status: 200, html };
       }
@@ -284,12 +294,12 @@ async function renderPath(path: string, query: Record<string, string>): Promise<
 
 export async function renderContentDetail(typeKey: string, row: any, query: Record<string, string>, editor: boolean) {
   const type = getTypeByKey(typeKey)!;
-  const item = itemForTemplate(type, mapItem(row));
+  const item = liquidItem(itemForTemplate(type, mapItem(row)));
   const url = itemUrl(type, item);
   const ctx = newCtx(url, editor, query, { id: null, title: item.title, parentId: null });
   // "related" gives templates something useful without extra code
   const related = all("SELECT * FROM content_items WHERE type_id = ? AND status = 'published' AND id != ? ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3", type.id, row.id).map((r) =>
-    itemForTemplate(type, mapItem(r)),
+    liquidItem(itemForTemplate(type, mapItem(r))),
   );
   const bodyHtml = await renderLiquid(type.detailTemplate || DEFAULT_DETAIL_TEMPLATE, { item, related, type: { key: type.key, name: type.name, singular: type.singular }, site: ctx.site });
   return renderDocument({

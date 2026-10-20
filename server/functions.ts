@@ -291,10 +291,11 @@ export async function runFunction(fn: ServerFunction, input: Record<string, unkn
   return outcome;
 }
 
-export async function invokeEndpointByRoute(route: string, req: FnInput) {
+export async function invokeEndpointByRoute(route: string, req: FnInput, opts: { publicOnly?: boolean } = {}) {
   const row = get("SELECT * FROM functions WHERE kind = 'endpoint' AND route = ? AND enabled = 1", route.replace(/^\/+/, ""));
   if (!row) throw new HttpError(404, `No function is listening on /api/fn/${route}`);
   const fn = mapFunction(row);
+  if (opts.publicOnly && !fn.isPublic) throw new HttpError(403, `“${route}” is for signed-in people only, so it can't be shown on a page. Make the endpoint public to use it here.`);
   const outcome = await runFunction(fn, { request: req });
   if (!outcome.ok) throw new HttpError(500, outcome.error);
   return unwrap(outcome.result).body;

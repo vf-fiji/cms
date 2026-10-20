@@ -27,10 +27,12 @@ describe("page cache (in-process)", () => {
     const second = await cachedRender("/c", {}, render);
     assert.equal(second.html, "<p>1</p>");
     assert.equal(second.cached, true);
-    assert.equal((await cachedRender("/c", { b: "2", a: "1" }, render)).html, "<p>2</p>", "the query string is part of the key");
-    assert.equal((await cachedRender("/c", { a: "1", b: "2" }, render)).html, "<p>2</p>", "in any order");
+    assert.equal((await cachedRender("/c", { q: "2", p: "1" }, render)).html, "<p>2</p>", "search and page parameters are part of the key");
+    assert.equal((await cachedRender("/c", { p: "1", q: "2" }, render)).html, "<p>2</p>", "in any order");
+    assert.equal((await cachedRender("/c", { utm_source: "x" }, render)).html, "<p>3</p>", "other parameters are rendered fresh");
+    assert.equal((await cachedRender("/c", { utm_source: "x" }, render)).html, "<p>4</p>");
     run("UPDATE settings SET value = '\"y\"' WHERE key = 'tagline'");
-    assert.equal((await cachedRender("/c", {}, render)).html, "<p>3</p>");
+    assert.equal((await cachedRender("/c", {}, render)).html, "<p>5</p>");
   });
 
   it("never caches a render that marked itself uncacheable", async () => {

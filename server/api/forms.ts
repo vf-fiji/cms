@@ -78,6 +78,15 @@ export function formNotification(form: FormDef, sub: { id: number | null; data: 
 
 let warnedNoMail = false;
 
+/** A form's "redirect after submit" must be a web address or a path on this site, never javascript: etc. */
+const isSafeRedirect = (u: string) => /^\/(?!\/)/.test(u) || /^https?:\/\//i.test(u);
+function safeRedirect(url: string) {
+  const u = url.trim();
+  if (!u) return "";
+  if (isSafeRedirect(u)) return u;
+  throw new HttpError(400, "The redirect must be a page on this site (starting with /) or a full https:// address.");
+}
+
 /** Fire and forget: email problems are logged and never fail or slow down the submission. */
 function notifyByEmail(req: Request, form: FormDef, sub: { id: number | null; data: Record<string, unknown>; pagePath: string }) {
   try {
@@ -145,7 +154,7 @@ forms.put("/forms/:id", requirePerm("forms.manage"), (req, res) => {
   const settings = {
     submitLabel: str(s.submitLabel, "Button label", { max: 60 }) || "Send",
     successMessage: str(s.successMessage, "Success message", { max: 500 }) || "Thanks!",
-    redirectUrl: str(s.redirectUrl, "Redirect", { max: 500 }),
+    redirectUrl: safeRedirect(str(s.redirectUrl, "Redirect", { max: 500 })),
     notifyEmail: parseNotifyEmails(str(s.notifyEmail, "Notification email", { max: 500 })).join(", "),
     storeSubmissions: s.storeSubmissions !== false,
   };
@@ -242,6 +251,8 @@ publicForms.post("/public/forms/:key/submit", submitLimit, async (req, res) => {
   }
   emit("form.submitted", { form: form.key, id, data, notifyEmail: form.settings.notifyEmail });
   notifyByEmail(req, form, { id, data, pagePath });
-  if (wantsJson) return res.json({ ok: true, message: form.settings.successMessage, redirect: form.settings.redirectUrl || null });
-  res.redirect(303, form.settings.redirectUrl || `${localPath(body._page).split("?")[0]}?submitted=1`);
+  // checked again here for forms saved before redirects were validated
+  const redirect = form.settings.redirectUrl && isSafeRedirect(form.settings.redirectUrl.trim()) ? form.settings.redirectUrl.trim() : "";
+  if (wantsJson) return res.json({ ok: true, message: form.settings.successMessage, redirect: redirect || null });
+  res.redirect(303, redirect || `${localPath(body._page).split("?")[0]}?submitted=1`);
 });

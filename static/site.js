@@ -41,7 +41,7 @@
         }
         return;
       }
-      if (out.redirect) { window.location.href = out.redirect; return; }
+      if (out.redirect && /^(\/(?!\/)|https?:\/\/)/i.test(out.redirect)) { window.location.href = out.redirect; return; }
       form.reset();
       status.className = "rf-form-status is-success";
       status.textContent = out.message || form.dataset.success;

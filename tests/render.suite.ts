@@ -133,9 +133,17 @@ describe("Liquid", () => {
     assert.match(await renderLiquid("{% if %}", {}), /Template error/);
   });
 
+  it("escapes output by default, except HTML Reef rendered or cleaned", async () => {
+    assert.equal(await renderLiquid("{{ t }}", { t: "<img src=x onerror=alert(1)>" }), "&lt;img src=x onerror=alert(1)&gt;");
+    assert.equal(await renderLiquid("{{ t | raw }}", { t: "<b>trusted</b>" }), "<b>trusted</b>");
+  });
+
   it("provides excerpt and json helpers", async () => {
     assert.equal(await renderLiquid("{{ '<p>one two three</p>' | excerpt: 2 }}", {}), "one two…");
-    assert.equal(await renderLiquid("{{ x | json }}", { x: { a: 1 } }), '{"a":1}');
+    assert.equal(await renderLiquid("{{ x | json | raw }}", { x: { a: 1 } }), '{"a":1}');
+    assert.equal(await renderLiquid("{{ x | json }}", { x: { a: 1 } }), "{&quot;a&quot;:1}", "escaped unless marked raw");
+    const escapedLt = "\\" + "u003c"; // the JSON escape for "<"
+    assert.equal(await renderLiquid("{{ x | json | raw }}", { x: "</script>" }), `"${escapedLt}/script>"`, "can't close a script tag");
   });
 });
 
@@ -149,9 +157,11 @@ describe("public routing", () => {
     assert.match(article.html!, /<h1>Welcome to your new website<\/h1>/);
   });
 
-  it("resolves nested page paths case-insensitively", async () => {
+  it("resolves nested page paths case-insensitively, redirecting to the page's own address", async () => {
     assert.equal((await renderPublicPath("/about/history", {})).status, 200);
-    assert.equal((await renderPublicPath("/About/History/", {})).status, 200);
+    const variant = await renderPublicPath("/About/History/", { p: "2" });
+    assert.equal(variant.status, 301);
+    assert.equal(variant.redirect, "/about/history?p=2");
   });
 
   it("returns 404 for unknown pages and unpublished items", async () => {

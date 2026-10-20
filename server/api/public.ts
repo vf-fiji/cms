@@ -26,8 +26,8 @@ function requireHeadless() {
 
 publicApi.get("/public/content/:type", (req, res) => {
   requireHeadless();
-  const limit = Math.min(100, Number(req.query.limit) || 20);
-  const offset = Number(req.query.offset) || 0;
+  const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
   const { type, items, total } = listPublishedItems(String(req.params.type), {
     limit,
     offset,
@@ -62,7 +62,7 @@ const searchLimit = rateLimit({ max: envLimit("REEF_RATE_LIMIT_SEARCH", 60), win
 publicApi.get("/public/search", searchLimit, (req, res) => {
   const q = String(req.query.q ?? "").slice(0, 200);
   res.setHeader("Cache-Control", "no-store");
-  res.json({ q, results: search(q, Math.min(50, Number(req.query.limit) || 10)) });
+  res.json({ q, results: search(q, Math.max(1, Math.min(50, Number(req.query.limit) || 10))) });
 });
 
 publicApi.get("/public/site", (_req, res) => {
@@ -82,7 +82,12 @@ publicApi.all("/fn/:route", fnLimit, async (req, res) => {
   if (!row) throw new HttpError(404, `No function is listening on /api/fn/${req.params.route}`);
   const fn = mapFunction(row);
   if (fn.method !== "ANY" && fn.method !== req.method) throw new HttpError(405, `This endpoint only accepts ${fn.method} requests.`);
-  if (!fn.isPublic && !req.user) throw new HttpError(401, "Sign in to call this endpoint.");
+  if (!fn.isPublic) {
+    if (!req.user) throw new HttpError(401, "Sign in to call this endpoint.");
+    // a session cookie alone isn't enough to change things: same CSRF check as the admin API
+    if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.headers["x-csrf-token"] !== req.user.csrf) throw new HttpError(403, "This request could not be verified. Refresh the page and try again.");
+    if (getSettings().require2fa && !req.user.twoFactorEnabled) throw new HttpError(403, "Set up two-factor sign-in to use this.", { needs2fa: true });
+  }
   const outcome = await runFunction(fn, {
     request: {
       method: req.method,
@@ -92,7 +97,8 @@ publicApi.all("/fn/:route", fnLimit, async (req, res) => {
       user: req.user ? { id: req.user.id, name: req.user.name, email: req.user.email } : null,
     },
   });
-  if (!outcome.ok) throw new HttpError(500, req.user ? outcome.error : "The function failed. Check its logs in Code Studio.");
+  // 502: the function failed, not Reef. It's in the function's own logs, so it isn't added to the error log.
+  if (!outcome.ok) throw new HttpError(502, req.user ? outcome.error : "The function failed. Check its logs in Code Studio.");
   const out = unwrap(outcome.result);
   for (const [k, v] of Object.entries(out.headers)) if (!/^set-cookie$/i.test(k)) res.setHeader(k, v);
   res.status(out.status);

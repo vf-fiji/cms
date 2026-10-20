@@ -629,8 +629,10 @@ export function PageEditor() {
 // =====================================================================
 function AddPanel({ customWidgets, onAdd, onAddSection }: { customWidgets: CustomWidget[]; onAdd: (type: string) => void; onAddSection: (w: number[]) => void }) {
   const [q, setQ] = useState("");
+  const { can } = useAuth();
   const all = [
-    ...BUILTIN_WIDGETS.map((w) => ({ type: w.type, name: w.name, icon: w.icon, category: w.category as string, description: w.description })),
+    // Code and React blocks run scripts, so they need the "Add code to pages" permission
+    ...BUILTIN_WIDGETS.filter((w) => can("pages.code") || (w.type !== "html" && w.type !== "react")).map((w) => ({ type: w.type, name: w.name, icon: w.icon, category: w.category as string, description: w.description })),
     ...customWidgets.map((w) => ({ type: w.key, name: w.name, icon: w.icon, category: "Custom", description: w.description })),
   ].filter((w) => !q || `${w.name} ${w.description}`.toLowerCase().includes(q.toLowerCase()));
   const groups = ["Basic", "Layout", "Media", "Content", "Interactive", "Developer", "Custom"];
@@ -968,6 +970,7 @@ function PageSettings({
   flush: () => Promise<Page | null>;
 }) {
   const [codeTab, setCodeTab] = useState<"css" | "js" | "head">("css");
+  const canCode = useAuth().can("pages.code");
   const [revisions, setRevisions] = useState<Revision[] | null>(null);
   useEffect(() => {
     if (tab === "history") {
@@ -1101,8 +1104,9 @@ function PageSettings({
           </div>
           <div className="code-field">
             {codeTab === "css" && <CodeEditor language="css" value={doc.customCss} onChange={(v) => onChange({ customCss: v }, "css")} minHeight="420px" />}
-            {codeTab === "js" && <CodeEditor language="javascript" value={doc.customJs} onChange={(v) => onChange({ customJs: v }, "js")} minHeight="420px" />}
-            {codeTab === "head" && <CodeEditor language="html" value={doc.customHead} onChange={(v) => onChange({ customHead: v }, "head")} minHeight="420px" />}
+            {codeTab === "js" && <CodeEditor language="javascript" value={doc.customJs} onChange={(v) => onChange({ customJs: v }, "js")} minHeight="420px" readOnly={!canCode} />}
+            {codeTab === "head" && <CodeEditor language="html" value={doc.customHead} onChange={(v) => onChange({ customHead: v }, "head")} minHeight="420px" readOnly={!canCode} />}
+            {!canCode && codeTab !== "css" && <div className="help" style={{ padding: "8px 2px" }}>Read only. Changing page JavaScript or &lt;head&gt; tags needs the “Add code to pages” permission.</div>}
           </div>
         </>
       )}

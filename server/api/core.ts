@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import crypto from "node:crypto";
 import { all, get, run, json, now, getSettings, saveSettings, logActivity, tx, slugify } from "../db";
 import {
@@ -13,6 +13,9 @@ import {
   checkThrottle,
   recordFailure,
   clearFailures,
+  clientKey,
+  revokeOtherSessions,
+  PER_ACCOUNT,
 } from "../auth";
 import { str, int, idParam, notFound } from "../http";
 import { ALL_PERMISSIONS, type Permission, type Role, type User } from "../../shared/types";
@@ -20,7 +23,7 @@ import { computePaths, flushViews } from "../render/site";
 import { checkTailwindInput } from "../tailwind";
 import QRCode from "qrcode";
 import { newSecret, otpauthUrl, verifyTotp, newRecoveryCodes, useRecoveryCode } from "../totp";
-import { recentErrors, sendAlert } from "../log";
+import { logError, recentErrors, sendAlert } from "../log";
 import { BACKUP_TIMES, lastBackupStatus, runBackupNow } from "../backup-schedule";
 
 // Password accepted, second factor pending: short-lived, in-memory tickets.
@@ -53,11 +56,14 @@ export const core = Router();
 core.post("/auth/login", (req, res) => {
   const email = str(req.body?.email, "Email", { required: true, max: 200 }).toLowerCase();
   const password = String(req.body?.password ?? "");
-  const throttleKey = `${req.ip}|${email}`;
+  const throttleKey = `${clientKey(req)}|${email}`;
+  const accountKey = `account|${email}`;
   checkThrottle(throttleKey);
+  checkThrottle(accountKey, PER_ACCOUNT, "failed sign-ins for this account");
   const user = get("SELECT * FROM users WHERE email = ?", email);
   if (!user || !user.active || !verifyPassword(password, user.password_hash)) {
     recordFailure(throttleKey);
+    if (recordFailure(accountKey, PER_ACCOUNT) && user) logError("auth", new Error(`Sign-in to ${email} is paused for 15 minutes after ${PER_ACCOUNT.max} wrong passwords.`), { ip: req.ip });
     throw new HttpError(401, "That email and password don't match. Check them and try again.");
   }
   clearFailures(throttleKey);
@@ -74,12 +80,16 @@ core.post("/auth/login/2fa", (req, res) => {
     challenges.delete(ticket);
     throw new HttpError(401, "That sign-in took too long. Enter your email and password again.");
   }
-  const throttleKey = `${req.ip}|2fa|${c.userId}`;
+  const throttleKey = `${clientKey(req)}|2fa|${c.userId}`;
+  const accountKey = `account2fa|${c.userId}`;
   checkThrottle(throttleKey);
+  checkThrottle(accountKey, PER_ACCOUNT, "wrong codes for this account");
   const user = get("SELECT * FROM users WHERE id = ? AND active = 1", c.userId);
   const how = user ? checkSecondFactor(user, String(req.body?.code ?? "")) : null;
   if (!how) {
     recordFailure(throttleKey);
+    // someone has this person's password and is guessing codes: worth telling an administrator
+    if (recordFailure(accountKey, PER_ACCOUNT)) logError("auth", new Error(`Two-factor sign-in for ${user?.email ?? `user ${c.userId}`} is paused for 15 minutes after ${PER_ACCOUNT.max} wrong codes. Their password may be known to someone else.`), { ip: req.ip });
     if (++c.attempts >= 5) challenges.delete(ticket);
     throw new HttpError(401, c.attempts >= 5 ? "Too many wrong codes. Enter your email and password again." : "That code isn't right. Check your authenticator app and try again.");
   }
@@ -129,6 +139,7 @@ core.post("/auth/2fa/enable", (req, res) => {
   if (step === null) throw new HttpError(400, "That code isn't right. Make sure your phone's clock is set automatically, then try the newest code.");
   const { codes, hashes } = newRecoveryCodes();
   run("UPDATE users SET totp_secret = totp_pending, totp_pending = NULL, totp_enabled = 1, totp_recovery = ?, totp_last_step = ? WHERE id = ?", JSON.stringify(hashes), step, req.user!.id);
+  revokeOtherSessions(req, req.user!.id); // other sessions were made without the second factor
   logActivity(req.user!.id, "turned on two-factor sign-in", "user", req.user!.id, req.user!.name);
   res.json({ recoveryCodes: codes });
 });
@@ -163,6 +174,8 @@ core.post("/auth/password", (req, res) => {
   if (!verifyPassword(current, row.password_hash)) throw new HttpError(400, "Your current password is incorrect.");
   if (next.length < 10) throw new HttpError(400, "Choose a new password with at least 10 characters.");
   run("UPDATE users SET password_hash = ? WHERE id = ?", hashPassword(next), req.user!.id);
+  revokeOtherSessions(req, req.user!.id); // anyone signed in with the old password is signed out
+  logActivity(req.user!.id, "changed their password", "user", req.user!.id, req.user!.name);
   res.json({ ok: true });
 });
 
@@ -232,8 +245,8 @@ function activityRows(limit: number, offset = 0) {
 }
 
 core.get("/activity", (req, res) => {
-  const limit = Math.min(200, Number(req.query.limit) || 50);
-  const offset = Number(req.query.offset) || 0;
+  const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
   res.json({ items: activityRows(limit, offset), total: get("SELECT COUNT(*) n FROM activity")!.n });
 });
 
@@ -388,12 +401,22 @@ function mapUser(r: any): User {
 }
 const tempPassword = () => crypto.randomBytes(9).toString("base64url");
 
+/** Stops someone with "users.manage" but not full access from granting, or taking over, more than they hold. */
+function assertWithinOwnAccess(req: Request, perms: string[], what: string) {
+  const mine = new Set(req.user!.permissions);
+  const extra = perms.filter((p) => !mine.has(p as Permission));
+  if (extra.length) throw new HttpError(403, `You can't ${what}, because it has permissions you don't have yourself (${extra.join(", ")}).`);
+}
+const rolePerms = (roleId: number): string[] => json(get("SELECT permissions FROM roles WHERE id = ?", roleId)?.permissions, []);
+const userPerms = (userId: number): string[] => rolePerms(get("SELECT role_id FROM users WHERE id = ?", userId)?.role_id ?? 0);
+
 core.get("/roles", (_req, res) =>
   res.json(all("SELECT r.*, (SELECT COUNT(*) FROM users u WHERE u.role_id = r.id) user_count FROM roles r ORDER BY r.id").map(mapRole)),
 );
 core.post("/roles", requirePerm("users.manage"), (req, res) => {
   const name = str(req.body?.name, "Role name", { required: true, max: 60 });
   const perms = (Array.isArray(req.body?.permissions) ? req.body.permissions : []).filter((p: string) => ALL_PERMISSIONS.some((a) => a.key === p));
+  assertWithinOwnAccess(req, perms, "create this role");
   const r = run("INSERT INTO roles(name, description, permissions) VALUES(?,?,?)", name, str(req.body?.description, "Description", { max: 300 }), JSON.stringify(perms));
   logActivity(req.user!.id, "created", "role", r.lastId, name);
   res.json({ id: r.lastId });
@@ -403,6 +426,7 @@ core.put("/roles/:id", requirePerm("users.manage"), (req, res) => {
   const role = get("SELECT * FROM roles WHERE id = ?", id) ?? notFound("Role");
   let perms = (Array.isArray(req.body?.permissions) ? req.body.permissions : []).filter((p: string) => ALL_PERMISSIONS.some((a) => a.key === p));
   if (role.is_system && role.name === "Administrator") perms = ALL_PERMISSIONS.map((p) => p.key); // never lock everyone out
+  assertWithinOwnAccess(req, [...perms, ...json<string[]>(role.permissions, [])], "change this role");
   run("UPDATE roles SET name = ?, description = ?, permissions = ? WHERE id = ?", role.is_system ? role.name : str(req.body?.name, "Role name", { required: true, max: 60 }), str(req.body?.description, "Description", { max: 300 }), JSON.stringify(perms), id);
   logActivity(req.user!.id, "updated", "role", id, role.name);
   res.json({ ok: true });
@@ -425,6 +449,7 @@ core.post("/users", requirePerm("users.manage"), (req, res) => {
   const name = str(req.body?.name, "Name", { required: true, max: 120 });
   const roleId = int(req.body?.roleId, "Role");
   if (!get("SELECT 1 FROM roles WHERE id = ?", roleId)) throw new HttpError(400, "Choose a role.");
+  assertWithinOwnAccess(req, rolePerms(roleId), "give someone this role");
   if (get("SELECT 1 FROM users WHERE email = ?", email)) throw new HttpError(409, "Someone with that email already has an account.");
   const password = tempPassword();
   const r = run("INSERT INTO users(email, name, password_hash, role_id, created_at) VALUES(?,?,?,?,?)", email, name, hashPassword(password), roleId, now());
@@ -437,6 +462,7 @@ core.put("/users/:id", requirePerm("users.manage"), (req, res) => {
   const roleId = int(req.body?.roleId ?? u.role_id, "Role");
   const active = req.body?.active === undefined ? !!u.active : !!req.body.active;
   if (id === req.user!.id && (!active || roleId !== u.role_id)) throw new HttpError(400, "You can't deactivate yourself or change your own role.");
+  assertWithinOwnAccess(req, [...rolePerms(u.role_id), ...rolePerms(roleId)], "change this person's account");
   run("UPDATE users SET name = ?, role_id = ?, active = ? WHERE id = ?", str(req.body?.name ?? u.name, "Name", { required: true, max: 120 }), roleId, active, id);
   if (!active) run("DELETE FROM sessions WHERE user_id = ?", id);
   res.json({ ok: true });
@@ -444,6 +470,7 @@ core.put("/users/:id", requirePerm("users.manage"), (req, res) => {
 core.post("/users/:id/reset-2fa", requirePerm("users.manage"), (req, res) => {
   const id = idParam(req.params.id);
   const u = get("SELECT name FROM users WHERE id = ?", id) ?? notFound("User");
+  assertWithinOwnAccess(req, userPerms(id), "reset this person's two-factor sign-in");
   run("UPDATE users SET totp_secret = NULL, totp_pending = NULL, totp_enabled = 0, totp_recovery = '[]', totp_last_step = 0 WHERE id = ?", id);
   run("DELETE FROM sessions WHERE user_id = ?", id);
   logActivity(req.user!.id, "reset two-factor sign-in for", "user", id, u.name);
@@ -453,6 +480,7 @@ core.post("/users/:id/reset-2fa", requirePerm("users.manage"), (req, res) => {
 core.post("/users/:id/reset-password", requirePerm("users.manage"), (req, res) => {
   const id = idParam(req.params.id);
   get("SELECT 1 FROM users WHERE id = ?", id) ?? notFound("User");
+  assertWithinOwnAccess(req, userPerms(id), "reset this person's password");
   const password = tempPassword();
   run("UPDATE users SET password_hash = ? WHERE id = ?", hashPassword(password), id);
   run("DELETE FROM sessions WHERE user_id = ?", id);
@@ -461,6 +489,7 @@ core.post("/users/:id/reset-password", requirePerm("users.manage"), (req, res) =
 core.delete("/users/:id", requirePerm("users.manage"), (req, res) => {
   const id = idParam(req.params.id);
   if (id === req.user!.id) throw new HttpError(400, "You can't delete your own account.");
+  assertWithinOwnAccess(req, userPerms(id), "delete this person's account");
   run("DELETE FROM users WHERE id = ?", id);
   res.json({ ok: true });
 });

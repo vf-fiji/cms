@@ -41,6 +41,7 @@ for (const [table, cols] of SOURCES) {
   db.exec(`CREATE TRIGGER reef_cache_${table}_upd AFTER UPDATE ON ${table}${changed} ${bump}`);
 }
 
+const CACHED_PARAMS = new Set(["q", "p"]);
 const TTL_MS = Math.max(0, Number(process.env.REEF_PAGE_CACHE_SECONDS ?? 300)) * 1000;
 const MAX_ENTRIES = 500;
 const MAX_BYTES = 64 * 1024 * 1024;
@@ -88,7 +89,9 @@ export async function cachedRender(
 ): Promise<{ status: number; html?: string; redirect?: string; cached?: boolean }> {
   if (!TTL_MS) return render();
   const key = keyFor(path, query);
-  if (key.length > 1024) return render();
+  // Only the parameters Reef's own widgets read (search and pagination) make separate copies;
+  // any other query string is rendered fresh, so made-up parameters can't push real pages out.
+  if (key.length > 1024 || !Object.keys(query).every((k) => CACHED_PARAMS.has(k))) return render();
   const version = cacheVersion();
   const hit = entries.get(key);
   if (hit && hit.version === version && hit.expires > Date.now()) {
@@ -102,7 +105,8 @@ export async function cachedRender(
   const state = { cacheable: true };
   const result = await scope.run(state, render);
   // a write during the render could mean the result is already out of date
-  if (state.cacheable && result.html !== undefined && !result.redirect && cacheVersion() === version) {
+  // only real pages: a 404 for every made-up address would fill the cache
+  if (state.cacheable && result.status === 200 && result.html !== undefined && !result.redirect && cacheVersion() === version) {
     remove(key);
     entries.set(key, { status: result.status, html: result.html, version, expires: Date.now() + TTL_MS });
     bytes += result.html.length;

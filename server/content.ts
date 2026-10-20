@@ -1,4 +1,5 @@
 import { all, get, json } from "./db";
+import { sanitizeRichText } from "./sanitize";
 import type { ContentItem, ContentType, FieldDef } from "../shared/types";
 
 export function mapType(r: any): ContentType {
@@ -51,6 +52,8 @@ export function itemUrl(type: ContentType, item: { slug: string }) {
 
 /** Shape of a content item inside Liquid templates and the headless API. */
 export function itemForTemplate(type: ContentType, item: ContentItem) {
+  const rich = type.fields.filter((f) => f.type === "richtext");
+  if (rich.length) item = { ...item, data: { ...item.data, ...Object.fromEntries(rich.map((f) => [f.key, sanitizeRichText(item.data[f.key])])) } };
   const imageField = type.fields.find((f) => f.type === "image");
   const summaryField = type.fields.find((f) => ["summary", "excerpt", "description", "intro"].includes(f.key));
   const bodyField = type.fields.find((f) => f.type === "richtext");

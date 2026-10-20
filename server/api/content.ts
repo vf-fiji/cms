@@ -125,8 +125,8 @@ content.get("/types/:key/items", (req, res) => {
   }
   const sort = String(req.query.sort ?? "updated");
   const order = { updated: "i.updated_at DESC", title: "i.title COLLATE NOCASE", manual: "i.sort, i.id", published: "COALESCE(i.published_at, i.created_at) DESC" }[sort] ?? "i.updated_at DESC";
-  const limit = Math.min(200, Number(req.query.limit) || 50);
-  const offset = Number(req.query.offset) || 0;
+  const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
   const total = get(`SELECT COUNT(*) n FROM content_items i WHERE ${where.join(" AND ")}`, ...params)!.n;
   const counts = Object.fromEntries(all("SELECT status, COUNT(*) n FROM content_items WHERE type_id = ? GROUP BY status", t.id).map((r) => [r.status, r.n]));
   res.json({ items: all(`${ITEM_SELECT} WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, limit, offset).map(mapItem), total, counts });
@@ -191,6 +191,11 @@ content.put("/items/:id", requirePerm("content.edit"), async (req, res) => {
   const t = mapType(get("SELECT * FROM content_types WHERE id = ?", row.type_id));
   const b = req.body ?? {};
   if (b.baseUpdatedAt && b.baseUpdatedAt !== row.updated_at && !b.force) throw new HttpError(409, "Someone saved this item after you opened it. Reload to see their changes, or overwrite them.", { conflict: true });
+  // items have no separate draft copy, so saving a published item changes the live site
+  if (!can(req, "content.publish")) {
+    if (row.status === "published") throw new HttpError(403, "This item is live, so changing it needs permission to publish content. Ask an editor, or unpublish it first.");
+    if ((b.publishAt && b.publishAt !== row.publish_at) || b.publishedAt) throw new HttpError(403, "Scheduling content to publish needs permission to publish content. Send it for review instead.");
+  }
   const title = str(b.title ?? row.title, "Title", { required: true, max: 200 });
   let data = validateData(t.fields, b.data ?? json(row.data, {}), row.status === "published");
   ({ data } = await runHooks("content.beforeSave", { type: t.key, id, title, data, isNew: false }));
@@ -270,7 +275,8 @@ content.post("/items/:id/restore/:revId", requirePerm("content.edit"), (req, res
 
 content.delete("/items/:id", requirePerm("content.edit"), (req, res) => {
   const id = idParam(req.params.id);
-  const row = get("SELECT title FROM content_items WHERE id = ?", id) ?? notFound("Item");
+  const row = get("SELECT title, status FROM content_items WHERE id = ?", id) ?? notFound("Item");
+  if (row.status === "published" && !can(req, "content.publish")) throw new HttpError(403, "This item is live, so deleting it needs permission to publish content.");
   run("DELETE FROM content_items WHERE id = ?", id);
   logActivity(req.user!.id, "deleted", "item", id, row.title);
   res.json({ ok: true });
@@ -288,9 +294,12 @@ content.post("/items-bulk", requirePerm("content.edit"), (req, res) => {
       } else if (action === "unpublish") {
         if (!can(req, "content.publish")) throw new HttpError(403, "You can't unpublish.");
         run("UPDATE content_items SET status='draft', updated_at=? WHERE id=?", now(), id);
-      } else if (action === "delete") run("DELETE FROM content_items WHERE id = ?", id);
-      else if (action === "tag" && req.body?.tag) {
-        const row = get("SELECT tags FROM content_items WHERE id = ?", id);
+      } else if (action === "delete") {
+        if (get("SELECT status FROM content_items WHERE id = ?", id)?.status === "published" && !can(req, "content.publish")) throw new HttpError(403, "It's live, so deleting it needs permission to publish content.");
+        run("DELETE FROM content_items WHERE id = ?", id);
+      } else if (action === "tag" && req.body?.tag) {
+        const row = get("SELECT tags, status FROM content_items WHERE id = ?", id);
+        if (row?.status === "published" && !can(req, "content.publish")) throw new HttpError(403, "It's live, so changing it needs permission to publish content.");
         const tags = new Set(json<string[]>(row?.tags, []));
         tags.add(String(req.body.tag));
         run("UPDATE content_items SET tags = ? WHERE id = ?", JSON.stringify([...tags]), id);
