@@ -5,13 +5,19 @@ import { listPublishedItems, getPublishedItem } from "../content";
 import { invokeEndpointByRoute, mapFunction, runFunction, unwrap } from "../functions";
 import { computePaths, type PageSnapshot } from "../render/site";
 import { publicForms } from "./forms";
+import { rateLimit, envLimit } from "../ratelimit";
 
 /** Unauthenticated routes: headless content API, form posts and function endpoints. */
 export const publicApi = Router();
 
 publicApi.use(publicForms);
 
-publicApi.get("/health", (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+// Used by the Docker healthcheck: also proves the database answers.
+publicApi.get("/health", (_req, res) => {
+  get("SELECT 1");
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ ok: true, time: new Date().toISOString() });
+});
 
 function requireHeadless() {
   if (!getSettings().headlessApiEnabled) throw new HttpError(404, "The headless API is turned off in Settings.");
@@ -57,7 +63,12 @@ publicApi.get("/public/site", (_req, res) => {
 });
 
 // Developer-authored endpoints: /api/fn/<route>
-publicApi.all("/fn/:route", async (req, res) => {
+const fnLimit = rateLimit({
+  max: envLimit("REEF_RATE_LIMIT_FN", 120),
+  windowMs: 60_000,
+  message: "Too many requests to this endpoint. Please slow down and try again shortly.",
+});
+publicApi.all("/fn/:route", fnLimit, async (req, res) => {
   const row = get("SELECT * FROM functions WHERE kind = 'endpoint' AND route = ? AND enabled = 1", String(req.params.route));
   if (!row) throw new HttpError(404, `No function is listening on /api/fn/${req.params.route}`);
   const fn = mapFunction(row);

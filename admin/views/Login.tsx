@@ -1,29 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { Button, Field } from "../components/ui";
 import { Icon } from "../lib/icons";
 
-export function Login() {
-  const { refresh } = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [show, setShow] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await api.post("/auth/login", { email, password });
-      await refresh();
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
+const MIN_PASSWORD = 10;
+
+/** The two-panel sign-in layout shared by sign-in, forgot and reset screens. */
+function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="login">
       <div className="login-art">
@@ -51,35 +36,227 @@ export function Login() {
           </span>
         </div>
       </div>
-      <div className="login-panel">
-        <form className="login-form" onSubmit={submit}>
-          <h1>Welcome back</h1>
-          <p className="muted" style={{ marginBottom: 26 }}>
-            Sign in to manage your website.
-          </p>
-          {error && (
-            <div className="alert alert-danger" style={{ marginBottom: 16 }} role="alert">
-              <Icon name="CircleAlert" size={16} />
-              {error}
-            </div>
-          )}
-          <Field label="Email" htmlFor="email">
-            <input id="email" className="input" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
-          </Field>
-          <Field label="Password" htmlFor="password">
-            <div className="input-group">
-              <input id="password" className="input" type={show ? "text" : "password"} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-              <Button iconOnly icon={show ? "EyeOff" : "Eye"} onClick={() => setShow((s) => !s)} aria-label={show ? "Hide password" : "Show password"} />
-            </div>
-          </Field>
-          <Button type="submit" variant="primary" size="lg" className="btn-block" loading={busy} style={{ marginTop: 8 }}>
-            Sign in
-          </Button>
-          <p className="subtle" style={{ fontSize: 12.5, marginTop: 18 }}>
-            First time? Your initial credentials are in <code>data/admin-credentials.txt</code> on the server.
-          </p>
-        </form>
-      </div>
+      <div className="login-panel">{children}</div>
     </div>
+  );
+}
+
+function Alert({ tone, children }: { tone: "danger" | "success" | "info"; children: ReactNode }) {
+  return (
+    <div className={`alert alert-${tone}`} style={{ marginBottom: 16 }} role={tone === "danger" ? "alert" : "status"}>
+      <Icon name={tone === "danger" ? "CircleAlert" : tone === "success" ? "CircleCheck" : "Mail"} size={16} />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function PasswordInput({ id, value, onChange, autoComplete, autoFocus }: { id: string; value: string; onChange: (v: string) => void; autoComplete: string; autoFocus?: boolean }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="input-group">
+      <input id={id} className="input" type={show ? "text" : "password"} autoComplete={autoComplete} value={value} onChange={(e) => onChange(e.target.value)} required autoFocus={autoFocus} />
+      <Button iconOnly icon={show ? "EyeOff" : "Eye"} onClick={() => setShow((s) => !s)} aria-label={show ? "Hide password" : "Show password"} />
+    </div>
+  );
+}
+
+export function Login() {
+  const { refresh } = useAuth();
+  const loc = useLocation();
+  const justReset = new URLSearchParams(loc.search).get("reset") === "1";
+  const [email, setEmail] = useState<string>((loc.state as { email?: string } | null)?.email ?? "");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post("/auth/login", { email, password });
+      await refresh();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <AuthLayout>
+      <form className="login-form" onSubmit={submit}>
+        <h1>Welcome back</h1>
+        <p className="muted" style={{ marginBottom: 26 }}>
+          Sign in to manage your website.
+        </p>
+        {justReset && !error && <Alert tone="success">Your password was changed. Sign in with your new password.</Alert>}
+        {error && <Alert tone="danger">{error}</Alert>}
+        <Field label="Email" htmlFor="email">
+          <input id="email" className="input" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus={!email} />
+        </Field>
+        <Field
+          label="Password"
+          htmlFor="password"
+          action={
+            <Link to="/forgot-password" state={{ email }} style={{ fontSize: 12.5 }}>
+              Forgot password?
+            </Link>
+          }
+        >
+          <PasswordInput id="password" value={password} onChange={setPassword} autoComplete="current-password" autoFocus={!!email} />
+        </Field>
+        <Button type="submit" variant="primary" size="lg" className="btn-block" loading={busy} style={{ marginTop: 8 }}>
+          Sign in
+        </Button>
+        <p className="subtle" style={{ fontSize: 12.5, marginTop: 18 }}>
+          First time? Your initial credentials are in <code>data/admin-credentials.txt</code> on the server.
+        </p>
+      </form>
+    </AuthLayout>
+  );
+}
+
+export function ForgotPassword() {
+  const loc = useLocation();
+  const [email, setEmail] = useState<string>((loc.state as { email?: string } | null)?.email ?? "");
+  const [sent, setSent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.post<{ message: string }>("/auth/forgot", { email });
+      setSent(r.message);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <AuthLayout>
+      <form className="login-form" onSubmit={submit}>
+        <h1>Reset your password</h1>
+        {sent ? (
+          <>
+            <p className="muted" style={{ marginBottom: 22 }}>
+              We'll email <strong>{email}</strong> a link to choose a new password.
+            </p>
+            <Alert tone="info">{sent}</Alert>
+            <p className="subtle" style={{ fontSize: 12.5, marginBottom: 18 }}>
+              The link works once and expires after an hour. No email? Ask an administrator to reset your password from Users.
+            </p>
+            <Link to="/login" state={{ email }} className="btn btn-block">
+              Back to sign in
+            </Link>
+          </>
+        ) : (
+          <>
+            <p className="muted" style={{ marginBottom: 26 }}>
+              Enter the email you sign in with and we'll send you a reset link.
+            </p>
+            {error && <Alert tone="danger">{error}</Alert>}
+            <Field label="Email" htmlFor="email">
+              <input id="email" className="input" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+            </Field>
+            <Button type="submit" variant="primary" size="lg" className="btn-block" loading={busy} style={{ marginTop: 8 }}>
+              Send reset link
+            </Button>
+            <p style={{ fontSize: 13, marginTop: 18 }}>
+              <Link to="/login" state={{ email }}>
+                Back to sign in
+              </Link>
+            </p>
+          </>
+        )}
+      </form>
+    </AuthLayout>
+  );
+}
+
+export function ResetPassword() {
+  const { refresh } = useAuth();
+  const navigate = useNavigate();
+  // The token arrives in the URL fragment (#token=…) so it never reaches server logs or Referer headers.
+  const [token] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get("token") ?? "");
+  const [state, setState] = useState<{ status: "checking" | "invalid" } | { status: "valid"; email: string }>({ status: "checking" });
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (window.location.hash) history.replaceState(history.state, "", window.location.pathname + window.location.search);
+    if (!token) return setState({ status: "invalid" });
+    let live = true;
+    api
+      .post<{ valid: boolean; email?: string }>("/auth/reset/check", { token })
+      .then((r) => live && setState(r.valid ? { status: "valid", email: r.email ?? "" } : { status: "invalid" }))
+      .catch((err) => {
+        if (!live) return;
+        setState({ status: "invalid" });
+        setError(err.message);
+      });
+    return () => {
+      live = false;
+    };
+  }, [token]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password.length < MIN_PASSWORD) return setError(`Choose a password with at least ${MIN_PASSWORD} characters.`);
+    if (password !== confirm) return setError("The two passwords don't match.");
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.post<{ email: string }>("/auth/reset", { token, password });
+      await refresh(); // a reset signs the account out everywhere, including here
+      navigate("/login?reset=1", { replace: true, state: { email: r.email } });
+    } catch (err: any) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AuthLayout>
+      <form className="login-form" onSubmit={submit}>
+        <h1>Choose a new password</h1>
+        {state.status === "checking" && <p className="muted">Checking your reset link…</p>}
+        {state.status === "invalid" && (
+          <>
+            <p className="muted" style={{ marginBottom: 22 }}>
+              This reset link has expired or was already used.
+            </p>
+            {error && <Alert tone="danger">{error}</Alert>}
+            <Link to="/forgot-password" className="btn btn-primary btn-lg btn-block">
+              Request a new link
+            </Link>
+            <p style={{ fontSize: 13, marginTop: 18 }}>
+              <Link to="/login">Back to sign in</Link>
+            </p>
+          </>
+        )}
+        {state.status === "valid" && (
+          <>
+            <p className="muted" style={{ marginBottom: 26 }}>
+              For <strong>{state.email}</strong>. You'll be signed out on every device.
+            </p>
+            {error && <Alert tone="danger">{error}</Alert>}
+            <input type="email" autoComplete="username" value={state.email} readOnly hidden />
+            <Field label="New password" htmlFor="new-password" help={`At least ${MIN_PASSWORD} characters.`}>
+              <PasswordInput id="new-password" value={password} onChange={setPassword} autoComplete="new-password" autoFocus />
+            </Field>
+            <Field label="Confirm new password" htmlFor="confirm-password">
+              <PasswordInput id="confirm-password" value={confirm} onChange={setConfirm} autoComplete="new-password" />
+            </Field>
+            <Button type="submit" variant="primary" size="lg" className="btn-block" loading={busy} style={{ marginTop: 8 }}>
+              Change password
+            </Button>
+          </>
+        )}
+      </form>
+    </AuthLayout>
   );
 }

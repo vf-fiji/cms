@@ -27,21 +27,33 @@ export interface TestServer {
   output: () => string;
 }
 
+export interface StartOptions {
+  /** Extra environment variables (e.g. SMTP_HOST, rate limits). */
+  env?: Record<string, string>;
+  /** Use an existing data folder (e.g. a restored backup) instead of a fresh one. */
+  dataDir?: string;
+}
+
 /** Starts a real Reef server (production mode, no Vite) on a free port with a fresh database. */
-export async function startServer(): Promise<TestServer> {
+export async function startServer(opts: StartOptions = {}): Promise<TestServer> {
   const port = await freePort();
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "reef-api-"));
+  const dataDir = opts.dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "reef-api-"));
   let log = "";
   const child: ChildProcess = spawn(process.execPath, ["--import", "tsx", "server/index.ts"], {
     cwd: CMS_ROOT,
     env: {
       ...process.env,
+      // Keep a developer's own mail settings out of the tests.
+      SMTP_HOST: "",
+      REEF_TRUST_PROXY: "",
+      REEF_PUBLIC_URL: `http://127.0.0.1:${port}`,
       NODE_ENV: "production",
       PORT: String(port),
       HOST: "127.0.0.1",
       REEF_DATA_DIR: dataDir,
       REEF_ADMIN_EMAIL: ADMIN.email,
       REEF_ADMIN_PASSWORD: ADMIN.password,
+      ...opts.env,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -71,7 +83,7 @@ export async function startServer(): Promise<TestServer> {
       new Promise<void>((resolve) => {
         if (child.exitCode !== null) return resolve();
         child.once("exit", () => {
-          fs.rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+          if (!opts.dataDir) fs.rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
           resolve();
         });
         child.kill();

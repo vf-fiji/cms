@@ -7,7 +7,7 @@ import { useTheme } from "./lib/theme";
 import { initials } from "./lib/format";
 import { Dialogs, Toasts, Spinner, Menu, useHotkey } from "./components/ui";
 import { CommandPalette } from "./components/CommandPalette";
-import { Login } from "./views/Login";
+import { Login, ForgotPassword, ResetPassword } from "./views/Login";
 import { Dashboard } from "./views/Dashboard";
 import type { ContentType, Permission } from "../shared/types";
 
@@ -99,6 +99,9 @@ function Gate() {
   const { user, ready } = useAuth();
   const loc = useLocation();
   if (!ready) return <Spinner label="Starting Reef…" />;
+  // Password recovery works whether or not someone is signed in on this browser.
+  if (loc.pathname === "/forgot-password") return <ForgotPassword />;
+  if (loc.pathname === "/reset-password") return <ResetPassword />;
   if (!user) {
     if (loc.pathname !== "/login") return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
     return <Login />;

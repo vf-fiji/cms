@@ -3,7 +3,7 @@ import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { all, get, run, now, UPLOAD_DIR, getSettings } from "./db";
+import { all, get, run, now, UPLOAD_DIR, getSettings, db } from "./db";
 import { loadUser, HttpError } from "./auth";
 import { core } from "./api/core";
 import { pages, publishPage } from "./api/pages";
@@ -13,6 +13,9 @@ import { forms } from "./api/forms";
 import { developer } from "./api/developer";
 import { sitegraph } from "./api/sitegraph";
 import { publicApi } from "./api/public";
+import { recovery } from "./api/recovery";
+import { parseTrustProxy } from "./http";
+import { getMailTransport } from "./mail";
 import { renderPublicPath, renderPageSnapshot, renderContentDetail, computePaths, sitemapXml, type PageSnapshot } from "./render/site";
 import { runDueSchedules } from "./functions";
 import { seedIfEmpty } from "./seed";
@@ -30,7 +33,8 @@ seedIfEmpty();
 const app = express();
 const server = http.createServer(app);
 app.disable("x-powered-by");
-app.set("trust proxy", "loopback");
+// Behind a reverse proxy, set REEF_TRUST_PROXY so req.ip / req.protocol come from X-Forwarded-*.
+app.set("trust proxy", parseTrustProxy(process.env.REEF_TRUST_PROXY));
 
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -43,7 +47,7 @@ app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(loadUser);
 
 // ---------- API ----------
-app.use("/api", publicApi);
+app.use("/api", publicApi, recovery);
 app.use("/api", core, pages, content, media, forms, developer, sitegraph);
 app.use("/api", (_req, _res, next) => next(new HttpError(404, "Unknown API route.")));
 
@@ -154,7 +158,9 @@ async function start() {
   server.listen(PORT, HOST, () => {
     console.log(`\n  Reef CMS is running`);
     console.log(`  Website:  http://${HOST}:${PORT}/`);
-    console.log(`  Admin:    http://${HOST}:${PORT}/admin\n`);
+    console.log(`  Admin:    http://${HOST}:${PORT}/admin`);
+    console.log(`  Email:    ${getMailTransport().describe}\n`);
+    if (isProd && !process.env.REEF_PUBLIC_URL) console.warn("  [warn] REEF_PUBLIC_URL isn't set, so password reset emails can't be sent.\n");
   });
 }
 
@@ -179,6 +185,26 @@ async function tick() {
   await runDueSchedules().catch((e) => console.error("[scheduler] functions", e));
 }
 setInterval(() => void tick(), 30_000).unref();
+
+// ---------- graceful shutdown (docker stop, Ctrl+C) ----------
+let stopping = false;
+function shutdown(signal: string) {
+  if (stopping) return;
+  stopping = true;
+  console.log(`[server] ${signal} received, shutting down`);
+  setTimeout(() => process.exit(0), 5_000).unref();
+  server.close(() => {
+    try {
+      db.close();
+    } catch {
+      /* already closed */
+    }
+    process.exit(0);
+  });
+  server.closeIdleConnections();
+}
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
 
 if (!fs.existsSync(path.join(ROOT, "static"))) console.warn("Missing server/static directory");
 start();

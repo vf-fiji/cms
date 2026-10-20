@@ -1,0 +1,31 @@
+# Reef CMS behind your TLS reverse proxy. See "Deploying" in README.md.
+#   cp .env.example .env   # then edit it
+#   docker compose up -d --build
+services:
+  reef:
+    build: .
+    image: reef-cms:latest
+    init: true # forwards docker stop's SIGTERM so Reef shuts down cleanly
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # A proxy on the host reaches the container from the Docker bridge (a private address).
+      REEF_TRUST_PROXY: ${REEF_TRUST_PROXY:-loopback, uniquelocal}
+    ports:
+      # Only reachable from this machine: put the reverse proxy in front of it.
+      - "127.0.0.1:${REEF_HOST_PORT:-4400}:4400"
+    volumes:
+      - reef-data:/data
+      - reef-backups:/backups
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4400/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+volumes:
+  reef-data:
+  reef-backups:

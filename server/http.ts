@@ -45,3 +45,17 @@ export function toCsv(rows: Record<string, unknown>[], columns: string[]): strin
   };
   return [columns.map(cell).join(","), ...rows.map((r) => columns.map((c) => cell(r[c])).join(","))].join("\r\n");
 }
+
+/**
+ * REEF_TRUST_PROXY → Express "trust proxy". Unset keeps the safe default (only a proxy on
+ * this machine). "true"/"false", a hop count ("1") or addresses/subnets/presets
+ * ("10.0.0.0/8, uniquelocal") are passed through.
+ */
+export function parseTrustProxy(v: string | undefined): boolean | number | string {
+  const s = v?.trim();
+  if (!s) return "loopback";
+  if (/^(true|yes)$/i.test(s)) return true;
+  if (/^(false|no)$/i.test(s)) return false;
+  if (/^\d+$/.test(s)) return Number(s);
+  return s;
+}

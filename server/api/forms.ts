@@ -4,6 +4,7 @@ import { requirePerm, HttpError } from "../auth";
 import { str, key, idParam, notFound, toCsv } from "../http";
 import type { FormDef, FormField } from "../../shared/types";
 import { runHooks, emit } from "../functions";
+import { rateLimit, envLimit } from "../ratelimit";
 
 export const forms = Router();
 
@@ -121,7 +122,16 @@ const localPath = (v: unknown) => {
 };
 
 export const publicForms = Router();
-publicForms.post("/public/forms/:key/submit", async (req, res) => {
+const submitLimit = rateLimit({
+  max: envLimit("REEF_RATE_LIMIT_FORMS", 10),
+  windowMs: 60_000,
+  message: "You've sent a lot of messages in a short time. Please wait a minute and try again.",
+  onLimited: (req, res, _retryAfter, message) => {
+    if ((req.headers.accept ?? "").includes("application/json")) return res.status(429).json({ error: message });
+    res.status(429).type("html").send(`<p>${message}</p><p><a href="javascript:history.back()">Go back</a></p>`);
+  },
+});
+publicForms.post("/public/forms/:key/submit", submitLimit, async (req, res) => {
   const r = get("SELECT * FROM forms WHERE key = ?", String(req.params.key)) ?? notFound("Form");
   const form = mapForm(r);
   const body = req.body ?? {};

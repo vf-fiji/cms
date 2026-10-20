@@ -26,7 +26,179 @@ npm run build   # builds the admin app into dist/admin
 npm start       # NODE_ENV=production, serves the built admin
 ```
 
-Environment variables: `PORT` (default 4400), `HOST` (default 127.0.0.1), `REEF_DATA_DIR` (default `./data`).
+Forgot your password? Use **Forgot password?** on the sign-in screen. In development, without SMTP set up, the reset link is printed in the terminal running `npm run dev`. See [Password recovery](#password-recovery).
+
+## Deploying
+
+Reef is one Node process with a SQLite database and an uploads folder, both in `REEF_DATA_DIR`. Run a single instance (sessions, sign-in throttles and rate limits are per process) behind a reverse proxy that handles TLS.
+
+### Docker
+
+```sh
+cd cms
+cp .env.example .env      # set REEF_PUBLIC_URL, SMTP_* and optionally REEF_ADMIN_*
+docker compose up -d --build
+docker compose ps         # STATUS should become "healthy"
+```
+
+- The image builds the admin app (`npm run build`) and runs the production server, which is what `npm start` runs. It starts Node directly rather than through npm so that `docker stop` reaches Reef, which then closes the database cleanly.
+- `compose.yaml` keeps data in two named volumes: `reef-data` mounted at `/data` (database and uploads) and `reef-backups` at `/backups`. It publishes the app only on `127.0.0.1:4400` (change with `REEF_HOST_PORT`), so it's reachable from your reverse proxy on the same host and not from the internet.
+- The healthcheck calls `GET /api/health`, which also queries the database.
+- First sign-in: set `REEF_ADMIN_EMAIL`/`REEF_ADMIN_PASSWORD` in `.env` before the first start, or read the generated details with `docker compose exec reef cat /data/admin-credentials.txt`. Then change the password and delete the file (`docker compose exec reef rm /data/admin-credentials.txt`).
+- Update: `docker compose up -d --build`. The volumes are kept, and database migrations run on start. Take a backup first.
+
+Without Docker, use Node 22.5 or later (Node 26 is tested), `npm ci && npm run build`, then run `npm start` under a process manager such as systemd with `HOST=127.0.0.1`.
+
+### Behind a TLS reverse proxy
+
+In production, session cookies are `Secure`, so the admin only works over HTTPS. Browsers make one exception for `http://localhost`. Point your proxy at Reef and forward the usual headers.
+
+Caddy (gets certificates automatically and sends `X-Forwarded-*` by default):
+
+```caddyfile
+cms.example.com {
+    reverse_proxy 127.0.0.1:4400
+}
+```
+
+nginx:
+
+```nginx
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name cms.example.com;
+    ssl_certificate     /etc/letsencrypt/live/cms.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/cms.example.com/privkey.pem;
+    client_max_body_size 60m;   # media uploads allow 50 MB per file
+
+    location / {
+        proxy_pass http://127.0.0.1:4400;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+server {
+    listen 80;
+    server_name cms.example.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+**`REEF_TRUST_PROXY`** decides which proxies Reef believes about the visitor's real IP address and protocol. It matters because sign-in throttling and rate limits count requests per IP. If the proxy isn't trusted, every visitor shares the proxy's address and one busy visitor can lock everyone out. If too much is trusted, visitors can fake their address with an `X-Forwarded-For` header and get around the limits.
+
+| Setup | Value |
+|---|---|
+| Proxy on the same machine, Reef run with `npm start` | leave unset (default `loopback`) |
+| Proxy on the host, Reef in Docker via `compose.yaml` | leave unset (compose sets `loopback, uniquelocal`) |
+| Proxy on another machine | its address or subnet, e.g. `10.0.0.5` or `10.0.0.0/24` |
+| A CDN in front of your proxy | the number of hops, e.g. `2`, or the CDN's address ranges |
+| No proxy at all | `false` |
+
+The value is passed to Express's [`trust proxy`](https://expressjs.com/en/guide/behind-proxies.html) setting, so `true`, a hop count, comma-separated addresses/subnets and the presets `loopback`, `linklocal` and `uniquelocal` all work.
+
+### Environment variables
+
+| Variable | Default | |
+|---|---|---|
+| `PORT` / `HOST` | `4400` / `127.0.0.1` | Listen address. The Docker image uses `0.0.0.0`. |
+| `REEF_DATA_DIR` | `./data` | Database (`reef.db`) and `uploads/`. `/data` in Docker. |
+| `REEF_PUBLIC_URL` | (none) | Public `https://` address, used in password reset links. **Required in production for resets.** Links are never built from the request's `Host` header, which anyone can forge. |
+| `REEF_TRUST_PROXY` | `loopback` | See above. |
+| `REEF_ADMIN_EMAIL` / `REEF_ADMIN_PASSWORD` | random | First administrator, used only when the database is created. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | (none), `587`, `true` on port 465 | Outgoing email. See [Password recovery](#password-recovery). |
+| `REEF_RESET_TTL_MINUTES` | `60` | How long a reset link works. |
+| `REEF_RATE_LIMIT_FORMS` / `REEF_RATE_LIMIT_FN` / `REEF_RATE_LIMIT_RESET` | `10` / `120` / `5` | See [Rate limits](#rate-limits). `0` turns a limit off. |
+| `REEF_BACKUP_DIR` / `REEF_BACKUP_KEEP` | `./backups` / keep all | See [Backups and restore](#backups-and-restore). `/backups` in Docker. |
+
+`.env.example` lists them all.
+
+## Backups and restore
+
+```sh
+npm run backup                                  # → backups/reef-backup-<timestamp>/
+npm run backup -- --out /mnt/nas/reef --keep 14 # keep only the newest 14 there
+npm run restore -- backups/reef-backup-<timestamp>   # Reef must be stopped; see below
+docker compose exec reef npm run backup         # in Docker → the reef-backups volume
+```
+
+Each backup folder holds:
+
+- `reef.db`: a consistent snapshot made with SQLite's `VACUUM INTO`. It's safe to run while Reef is serving and editing, and it's checked with `PRAGMA integrity_check` before it counts as done.
+- `uploads/`: a copy of every uploaded file, made after the snapshot so every file the snapshot refers to is included.
+- `manifest.json`: time, sizes and the integrity result.
+
+A half-finished backup is named `*.partial` and removed if it fails, so any `reef-backup-*` folder with a `manifest.json` is complete. Backups contain password hashes and form responses, so store them as carefully as the server.
+
+**Schedule it** and copy the results off the machine, for example with cron on the host:
+
+```cron
+15 3 * * *  cd /srv/reef/cms && docker compose exec -T reef npm run backup --silent -- --keep 14
+45 3 * * *  docker cp "$(cd /srv/reef/cms && docker compose ps -q reef)":/backups /srv/offsite-staging/reef
+```
+
+### Restore
+
+Restoring replaces the whole site, including users and passwords, with the backup's contents. `npm run restore` refuses to run while Reef has the database open, and it never deletes anything: the current database and uploads are moved to `data/pre-restore-<time>/` first.
+
+**Without Docker**
+
+```sh
+# 1. stop Reef (systemctl stop reef, or Ctrl+C on npm start)
+npm run restore -- backups/reef-backup-2026-10-21T03-15-00-000Z
+# 2. start Reef again (npm start)
+```
+
+**With Docker Compose**
+
+```sh
+docker compose exec reef ls /backups                  # pick a backup
+docker compose stop reef
+docker compose run --rm --no-deps reef npm run restore -- /backups/reef-backup-2026-10-21T03-15-00-000Z
+docker compose start reef
+```
+
+To restore a copy kept outside the server, copy it into the volume first: `docker compose cp ./reef-backup-<timestamp> reef:/backups/`.
+
+After the restore:
+
+- Sign in and check the site. Sessions and passwords are as they were at backup time. Anyone who signed in or changed their password since then must sign in again with their old password, or use **Forgot password?**.
+- When you're satisfied, delete the `pre-restore-*` folder inside the data folder. In Docker: `docker compose exec reef ls /data`, then remove it the same way. To undo the restore instead, stop Reef and restore from that folder's files.
+
+You can also restore by hand. With Reef stopped, copy the backup's `reef.db` and `uploads/` into an empty data folder. Don't leave old `reef.db-wal` or `reef.db-shm` files next to the restored database, because they belong to the old one.
+
+The test suite backs up a running server with `npm run backup`, checks that `npm run restore` refuses while a server is using the target folder, restores into it, and checks that pages, the reset password and media come back.
+
+## Password recovery
+
+**Forgot password?** on the sign-in screen asks for an email address and always gives the same answer, so it can't be used to find out who has an account. If an active account matches, Reef emails a link to `/admin/reset-password`.
+
+- The token is 256 bits of randomness. Only its SHA-256 hash is stored (table `password_resets`).
+- A link works **once** and **expires** after `REEF_RESET_TTL_MINUTES` (60). Asking again cancels earlier links. A link also stops working if the password is changed any other way, for example by an administrator under Users.
+- The token travels in the URL fragment (`#token=…`), so it never appears in server or proxy logs or in `Referer` headers. The page removes it from the address bar straight away.
+- Resetting signs the account out on every device. New passwords need at least 10 characters.
+- Requests are rate-limited per IP (`REEF_RATE_LIMIT_RESET`, 5 per 15 minutes) and per email address (3 per hour).
+
+**Email setup.** Set `SMTP_HOST` and usually `SMTP_USER`, `SMTP_PASS` and `SMTP_FROM`. Port 587 upgrades to TLS with STARTTLS. For port 465 (implicit TLS), set `SMTP_PORT=465`. The start-up log shows which transport is active (`Email: SMTP smtp.example.com:587`). Any provider with SMTP works, including Microsoft 365, Google Workspace, SendGrid, Mailgun, Postmark and SES.
+
+- **Development without SMTP:** emails, links included, are printed to the console.
+- **Production without SMTP:** nothing is sent and links are never logged. The server logs a warning instead. Administrators can still reset someone's password under **Users**.
+
+The sender is pluggable. `server/mail.ts` defines a `MailTransport` interface (`send({ to, subject, text, html })`). Call `setMailTransport()` at start-up to use an HTTP email API instead of SMTP.
+
+## Rate limits
+
+Per client IP, in memory, in fixed one-minute windows. A blocked request gets `429 Too Many Requests` with a `Retry-After` header.
+
+| What | Default | Variable |
+|---|---|---|
+| Public form submissions (`POST /api/public/forms/:key/submit`) | 10 per minute | `REEF_RATE_LIMIT_FORMS` |
+| Server function endpoints (`/api/fn/*`) | 120 per minute | `REEF_RATE_LIMIT_FN` |
+| "Forgot password" requests | 5 per 15 minutes, plus 3 per hour per email | `REEF_RATE_LIMIT_RESET` |
+| Sign-in | 5 failed attempts per IP and email within a minute, then a wait | (built in) |
+
+Form posts made without JavaScript get a short HTML page instead of JSON. Many mobile users can share one public IP address (carrier-grade NAT). If real visitors get blocked, raise the limits rather than turning them off. Put the limits on the proxy as well if you need more, for example nginx's `limit_req`.
 
 ## What's in it
 
@@ -85,7 +257,7 @@ The `cms` object provides `content.list/get/create/update`, `forms.submissions`,
 ## Tests
 
 ```sh
-npm test          # 147 tests, about 3 seconds
+npm test          # about 180 tests, a few seconds
 npm run typecheck
 ```
 
@@ -98,6 +270,7 @@ Tests use Node's built-in runner and live in `tests/*.suite.ts`. The `.suite.ts`
 - `tailwind.suite.ts`: class extraction, per-page compilation, brand colours, custom theme CSS, Preflight, cascade layers.
 - `layout.suite.ts`: the page editor's layout-tree operations.
 - `sitegraph.suite.ts`: the site map graph (hierarchy, content, forms, link detection, de-duplication).
+- `ops.suite.ts`: deployment features. Reset tokens (hashed storage, single use, expiry, invalidation), the full forgot/reset flow over HTTP against a fake SMTP server, `npm run backup` on a running server followed by a restore, rate limits on forms, `/api/fn` and reset requests, and per-visitor counting behind a trusted proxy.
 
 ## Architecture
 
@@ -114,10 +287,12 @@ Every page declares cascade layers up front: `theme, base, reef, components, uti
 
 ## Security notes
 
-- Passwords use scrypt. Sessions use HTTP-only SameSite cookies, writes require a CSRF token, and sign-in is throttled.
+- Passwords use scrypt. Sessions use HTTP-only SameSite cookies (`Secure` in production), writes require a CSRF token, and sign-in is throttled.
+- Password reset links are single-use, expire, are stored only as hashes, and are built from `REEF_PUBLIC_URL`, never the request's Host header. See [Password recovery](#password-recovery).
+- Public form submissions, `/api/fn/*` and reset requests are rate-limited per IP. See [Rate limits](#rate-limits), and set `REEF_TRUST_PROXY` correctly behind a proxy.
 - Server functions and React SSR run in a separate V8 context with CPU timeouts. Synchronous work is cut off after 1 second. Work after an `await` only has a 10-second wall-clock limit, which can't interrupt a busy loop. **This is not a security sandbox.** Only give the `code.edit` permission to people you'd trust with server access. React *blocks* placed by page editors render in the browser only. Server-side rendering is limited to developer-authored widgets.
 - Page editors can add client-side HTML/JS through the Code block, as in most CMSs. Remove `pages.edit` from roles that shouldn't.
 
 ## Not built yet
 
-These are honest gaps against Sitefinity: multilingual content, personalization/A-B testing, multi-site, image resizing/cropping and responsive `srcset`, a full-text search index, outbound email (use a `form.submitted` hook with your mail provider), and SSO. Drag-and-drop in the page editor was verified with synthetic drag events, not a physical mouse.
+These are honest gaps against Sitefinity: multilingual content, personalization/A-B testing, multi-site, image resizing/cropping and responsive `srcset`, a full-text search index, form notification emails (Reef sends password reset emails, but the form “Notify email” setting isn’t wired up yet; use a `form.submitted` hook with your mail provider), and SSO. Drag-and-drop in the page editor was verified with synthetic drag events, not a physical mouse.
