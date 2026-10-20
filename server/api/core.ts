@@ -16,7 +16,7 @@ import {
 } from "../auth";
 import { str, int, idParam, notFound } from "../http";
 import { ALL_PERMISSIONS, type Permission, type Role, type User } from "../../shared/types";
-import { computePaths } from "../render/site";
+import { computePaths, flushViews } from "../render/site";
 import { checkTailwindInput } from "../tailwind";
 import QRCode from "qrcode";
 import { newSecret, otpauthUrl, verifyTotp, newRecoveryCodes, useRecoveryCode } from "../totp";
@@ -174,6 +174,7 @@ core.put("/auth/profile", (req, res) => {
 
 // ---------- dashboard ----------
 core.get("/dashboard", (_req, res) => {
+  flushViews();
   const count = (sql: string, ...p: any[]) => get<{ n: number }>(sql, ...p)?.n ?? 0;
   const days: { day: string; views: number }[] = [];
   for (let i = 13; i >= 0; i--) {

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { all, json } from "../db";
-import { computePaths } from "../render/site";
+import { computePaths, flushViews } from "../render/site";
 import { itemUrl, mapType } from "../content";
 import type { PageLayout, SiteGraph, SiteGraphEdge, SiteGraphNode } from "../../shared/types";
 
@@ -45,6 +45,7 @@ export function buildSiteGraph(opts: { itemsPerType?: number } = {}): SiteGraph 
     edges.push({ source, target, kind });
   };
 
+  flushViews();
   const since = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
   const views = new Map(all<{ path: string; v: number }>("SELECT path, SUM(views) v FROM page_views WHERE day >= ? GROUP BY path", since).map((r) => [r.path.toLowerCase(), r.v]));
 

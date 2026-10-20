@@ -16,7 +16,7 @@ import { publicApi } from "./api/public";
 import { recovery } from "./api/recovery";
 import { parseTrustProxy } from "./http";
 import { getMailTransport } from "./mail";
-import { renderPublicPath, renderPageSnapshot, renderContentDetail, computePaths, sitemapXml, type PageSnapshot } from "./render/site";
+import { renderPublicPath, renderPageSnapshot, renderContentDetail, computePaths, sitemapXml, flushViews, type PageSnapshot } from "./render/site";
 import { runDueSchedules, warmFunctionWorkers } from "./functions";
 import { seedIfEmpty } from "./seed";
 import { reactRuntime, getBrowserModule } from "./react";
@@ -145,6 +145,7 @@ async function start() {
   app.get(/.*/, async (req, res) => {
     const result = await renderPublicPath(decodeURIComponent(req.path), req.query as Record<string, string>);
     if (result.redirect) return res.redirect(result.status, result.redirect);
+    res.setHeader("X-Reef-Cache", result.cached ? "hit" : "miss");
     res.status(result.status).type("html").send(result.html);
   });
 
@@ -203,6 +204,7 @@ function shutdown(signal: string) {
   console.log(`[server] ${signal} received, shutting down`);
   setTimeout(() => process.exit(0), 5_000).unref();
   server.close(() => {
+    flushViews();
     try {
       db.close();
     } catch {

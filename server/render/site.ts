@@ -1,4 +1,5 @@
-import { all, get, json, getSettings, run } from "../db";
+import { all, get, json, getSettings, run, tx } from "../db";
+import { cachedRender } from "./cache";
 import type { PageLayout, PageSeo, Template, CodeAsset } from "../../shared/types";
 import { renderLayout, type RenderCtx, type NavItem } from "./widgets";
 import { renderLiquid, escapeHtml as e } from "./liquid";
@@ -242,21 +243,25 @@ export async function renderPageSnapshot(
   });
 }
 
-/** Public request handler result. */
-export async function renderPublicPath(path: string, query: Record<string, string>): Promise<{ status: number; html?: string; redirect?: string }> {
+/** Public request handler result. Redirects and view counts run every time; the render itself is cached. */
+export async function renderPublicPath(path: string, query: Record<string, string>): Promise<{ status: number; html?: string; redirect?: string; cached?: boolean }> {
   // redirects first
   const redirect = get<{ id: number; to_path: string; code: number }>("SELECT id, to_path, code FROM redirects WHERE from_path = ? COLLATE NOCASE", path.replace(/\/+$/, "") || "/");
   if (redirect) {
     run("UPDATE redirects SET hits = hits + 1 WHERE id = ?", redirect.id);
     return { status: redirect.code, redirect: redirect.to_path };
   }
+  const result = await cachedRender(path, query, () => renderPath(path, query));
+  if (result.status === 200) trackView(path);
+  return result;
+}
 
+async function renderPath(path: string, query: Record<string, string>): Promise<{ status: number; html?: string }> {
   const page = findPageByPath(path);
   if (page?.published) {
     const snap = json<PageSnapshot>(page.published, null as any);
     const paths = computePaths();
     const html = await renderPageSnapshot({ id: page.id, parentId: page.parent_id, slug: page.slug, path: paths.get(page.id) ?? path }, snap, { query });
-    trackView(path);
     return { status: 200, html };
   }
 
@@ -270,7 +275,6 @@ export async function renderPublicPath(path: string, query: Record<string, strin
       const row = get("SELECT * FROM content_items WHERE type_id = ? AND slug = ? AND status = 'published'", type.id, decodeURIComponent(m[2]));
       if (row) {
         const html = await renderContentDetail(type.key, row, query, false);
-        trackView(path);
         return { status: 200, html };
       }
     }
@@ -331,14 +335,33 @@ async function renderNotFound(path: string) {
   });
 }
 
+// Views are counted in memory and written every few seconds in one transaction, so a busy
+// page doesn't cost a database write per visit. Readers call flushViews() first.
+const pendingViews = new Map<string, number>();
+const VIEW_KEY_LIMIT = 5000; // a flood of random URLs can't grow this without bound
+
 function trackView(path: string) {
-  const day = new Date().toISOString().slice(0, 10);
+  const key = `${new Date().toISOString().slice(0, 10)}|${path.slice(0, 500)}`;
+  if (pendingViews.size >= VIEW_KEY_LIMIT && !pendingViews.has(key)) flushViews();
+  pendingViews.set(key, (pendingViews.get(key) ?? 0) + 1);
+}
+
+export function flushViews() {
+  if (!pendingViews.size) return;
+  const batch = [...pendingViews];
+  pendingViews.clear();
   try {
-    run("INSERT INTO page_views(day, path, views) VALUES(?, ?, 1) ON CONFLICT(day, path) DO UPDATE SET views = views + 1", day, path);
+    tx(() => {
+      for (const [key, n] of batch) {
+        const i = key.indexOf("|");
+        run("INSERT INTO page_views(day, path, views) VALUES(?, ?, ?) ON CONFLICT(day, path) DO UPDATE SET views = views + excluded.views", key.slice(0, i), key.slice(i + 1), n);
+      }
+    });
   } catch {
     /* analytics must never break rendering */
   }
 }
+setInterval(flushViews, 5_000).unref();
 
 export function sitemapXml(origin: string) {
   const rows = all<PageRow & { updated_at: string; seo: string }>("SELECT id, parent_id, slug, is_home, published, updated_at, seo FROM pages WHERE published IS NOT NULL");

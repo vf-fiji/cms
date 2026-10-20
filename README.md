@@ -115,6 +115,7 @@ The value is passed to Express's [`trust proxy`](https://expressjs.com/en/guide/
 | `REEF_BACKUP_AFTER` | (none) | Command run after each backup to copy it off-site. The new folder is in `$REEF_BACKUP_PATH`. |
 | `REEF_ALERT_WEBHOOK` | (none) | Slack, Teams, Discord or custom webhook for errors, crashes and failed backups. See [Monitoring](#monitoring-and-alerts). |
 | `REEF_LOG_KEEP_DAYS` | `14` | How long `data/logs/errors-*.jsonl` files are kept. |
+| `REEF_PAGE_CACHE_SECONDS` | `300` | Longest a cached public page is reused. Edits show immediately regardless; this only bounds time-based output. `0` turns the cache off. See [Performance](#performance). |
 | `REEF_FN_WORKERS` / `REEF_FN_MEMORY_MB` / `REEF_FN_TIMEOUT_MS` | `4` / `256` / `10000` | Server function worker pool size, memory cap per worker, and time limit per call. |
 
 `.env.example` lists them all.
@@ -183,6 +184,22 @@ After the restore:
 You can also restore by hand. With Reef stopped, copy the backup's `reef.db` and `uploads/` into an empty data folder. Don't leave old `reef.db-wal` or `reef.db-shm` files next to the restored database, because they belong to the old one.
 
 The test suite backs up a running server with `npm run backup`, checks that `npm run restore` refuses while a server is using the target folder, restores into it, and checks that pages, the reset password and media come back.
+
+## Performance
+
+Public pages are cached in memory after their first render. SQLite triggers bump a version number on every write to anything a page is built from (pages, content, templates, widgets, media, forms, settings…), so a publish or edit shows on the next request, including changes made by server functions or another process. Saving a draft doesn't clear the cache. Pages that call a server function (the Liquid `fn` filter) are never cached. The `X-Reef-Cache: hit|miss` response header shows what happened.
+
+Page views are counted in memory and written every 5 seconds, so a busy page doesn't cost a database write per visit.
+
+Measured with `autocannon -c 50` against the seeded demo site, production mode, one Node process on a laptop:
+
+| | Before | After |
+|---|---|---|
+| Home page | 134 req/s, p50 374 ms | 7,300 req/s, p50 6 ms |
+| News list / article | ~210 req/s, p50 ~245 ms | ~10,000 req/s, p50 4 ms |
+| `/api/public/search` | 977 req/s | 2,365 req/s |
+
+Put the reverse proxy's compression (gzip/brotli) in front, and let it cache `/_reef/*` and `/media/*`, which are static.
 
 ## Monitoring and alerts
 

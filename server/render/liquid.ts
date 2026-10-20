@@ -1,4 +1,5 @@
 import { Liquid } from "liquidjs";
+import { markUncacheable } from "./cache";
 import { listPublishedItems, getPublishedItem } from "../content";
 import { mediaUrl } from "../media";
 import { bestVariant, srcsetFor } from "../images";
@@ -34,6 +35,7 @@ liquid.registerFilter("content", (typeKey: string, limit = 10, tag?: string) =>
 liquid.registerFilter("content_item", (typeKey: string, slug: string) => getPublishedItem(String(typeKey), String(slug)) ?? null);
 /** {% assign weather = 'weather' | fn %} -- runs a server function endpoint and returns its result */
 liquid.registerFilter("fn", async (route: string, input?: unknown) => {
+  markUncacheable(); // a function's answer can change without the database changing
   const { invokeEndpointByRoute } = await import("../functions");
   try {
     return await invokeEndpointByRoute(String(route), { method: "GET", query: input && typeof input === "object" ? (input as any) : {}, body: input ?? null, headers: {} });
