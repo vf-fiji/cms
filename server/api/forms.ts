@@ -1,10 +1,12 @@
-import { Router } from "express";
-import { all, get, run, json, now, logActivity } from "../db";
+import { Router, type Request } from "express";
+import { all, get, run, json, now, logActivity, getSettings } from "../db";
 import { requirePerm, HttpError } from "../auth";
 import { str, key, idParam, notFound, toCsv } from "../http";
 import type { FormDef, FormField } from "../../shared/types";
 import { runHooks, emit } from "../functions";
 import { rateLimit, envLimit } from "../ratelimit";
+import { sendMail, getMailTransport } from "../mail";
+import { publicBaseUrl } from "./recovery";
 
 export const forms = Router();
 
@@ -24,6 +26,78 @@ const FORM_SELECT = "SELECT f.*, (SELECT COUNT(*) FROM form_submissions s WHERE 
 
 forms.get("/forms", (_req, res) => res.json(all(`${FORM_SELECT} ORDER BY f.name`).map((r) => ({ ...mapForm(r), unread: r.unread }))));
 forms.get("/forms/:id", (req, res) => res.json(mapForm(get(`${FORM_SELECT} WHERE f.id = ?`, idParam(req.params.id)) ?? notFound("Form"))));
+
+// Plain addresses only: no display names, quotes, brackets or whitespace, so nothing a
+// form manager types can add or change an email header.
+const ADDRESS = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
+const MAX_NOTIFY = 10;
+
+/** "a@x.com, b@y.com" → ["a@x.com", "b@y.com"]. Throws a 400 naming the first bad address. */
+export function parseNotifyEmails(v: string): string[] {
+  const list = v.split(/[,;]/).map((a) => a.trim()).filter(Boolean);
+  for (const a of list) if (!ADDRESS.test(a)) throw new HttpError(400, `“${a.slice(0, 80)}” isn't a valid notification email address. Separate several with commas.`);
+  if (list.length > MAX_NOTIFY) throw new HttpError(400, `Use at most ${MAX_NOTIFY} notification email addresses.`);
+  return [...new Set(list.map((a) => a.toLowerCase()))];
+}
+
+/** Single-line header text: control characters (CR/LF included) become spaces. */
+const headerText = (s: string, max = 150) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").trim().slice(0, max);
+
+const valueText = (v: unknown) => {
+  const s = Array.isArray(v) ? v.join(", ") : String(v ?? "");
+  return s.trim() ? s.replace(/\r\n?/g, "\n").replace(/\n/g, "\n  ") : "(empty)";
+};
+
+/** The plain-text email sent to a form's notification addresses. */
+export function formNotification(form: FormDef, sub: { id: number | null; data: Record<string, unknown>; pagePath: string }, baseUrl: string | null) {
+  const site = getSettings().siteName || "Reef CMS";
+  const shown = form.fields.filter((f) => f.type !== "heading");
+  const known = new Set(shown.map((f) => f.key));
+  const rows = [
+    ...shown.map((f) => [f.label || f.key, sub.data[f.key]] as const),
+    // Keys a form.beforeSubmit hook added
+    ...Object.entries(sub.data).filter(([k]) => !known.has(k)),
+  ];
+  const text = [
+    `New response to “${form.name}” on ${site}.`,
+    "",
+    `Form: ${form.name}`,
+    `Page: ${sub.pagePath || "(unknown)"}`,
+    `Received: ${new Date().toUTCString()}`,
+    "",
+    ...rows.map(([label, v]) => `${label}:\n  ${valueText(v)}\n`),
+    sub.id === null
+      ? "This form doesn't store responses in Reef, so this email is the only copy."
+      : baseUrl
+        ? `See all responses: ${baseUrl}/admin/forms/${form.id}?tab=responses`
+        : "See all responses in the Reef admin under Forms.",
+  ].join("\n");
+  return { subject: headerText(`New response: ${form.name}`), text };
+}
+
+let warnedNoMail = false;
+
+/** Fire and forget: email problems are logged and never fail or slow down the submission. */
+function notifyByEmail(req: Request, form: FormDef, sub: { id: number | null; data: Record<string, unknown>; pagePath: string }) {
+  try {
+    let to: string[];
+    try {
+      to = parseNotifyEmails(form.settings.notifyEmail ?? "");
+    } catch (e: any) {
+      return console.error(`[forms] Not emailing the response to “${form.key}”: ${e.message}`);
+    }
+    if (!to.length) return;
+    if (!getMailTransport().delivers) {
+      if (!warnedNoMail) console.warn(`[forms] Form “${form.key}” has a notification email, but email isn't configured (set SMTP_HOST). Responses are not emailed.`);
+      warnedNoMail = true;
+      return;
+    }
+    const msg = formNotification(form, sub, publicBaseUrl(req));
+    sendMail({ to: to.join(", "), ...msg }).catch((e: any) => console.error(`[forms] Couldn't email the response to “${form.key}” to ${to.join(", ")}: ${e?.message ?? e}`));
+  } catch (e: any) {
+    console.error(`[forms] Couldn't email the response to “${form.key}”: ${e?.message ?? e}`);
+  }
+}
 
 function cleanFields(list: unknown): FormField[] {
   if (!Array.isArray(list)) return [];
@@ -71,7 +145,7 @@ forms.put("/forms/:id", requirePerm("forms.manage"), (req, res) => {
     submitLabel: str(s.submitLabel, "Button label", { max: 60 }) || "Send",
     successMessage: str(s.successMessage, "Success message", { max: 500 }) || "Thanks!",
     redirectUrl: str(s.redirectUrl, "Redirect", { max: 500 }),
-    notifyEmail: str(s.notifyEmail, "Notify email", { max: 200 }),
+    notifyEmail: parseNotifyEmails(str(s.notifyEmail, "Notification email", { max: 500 })).join(", "),
     storeSubmissions: s.storeSubmissions !== false,
   };
   run("UPDATE forms SET name = ?, fields = ?, settings = ?, updated_at = ? WHERE id = ?", str(req.body?.name ?? f.name, "Form name", { required: true, max: 120 }), JSON.stringify(req.body?.fields ? cleanFields(req.body.fields) : json(f.fields, [])), JSON.stringify(settings), now(), id);
@@ -161,10 +235,12 @@ publicForms.post("/public/forms/:key/submit", submitLimit, async (req, res) => {
     throw e;
   }
   let id: number | null = null;
+  const pagePath = String(body._page ?? "").slice(0, 300);
   if (form.settings.storeSubmissions) {
-    id = run("INSERT INTO form_submissions(form_id, data, page_path, created_at) VALUES(?,?,?,?)", form.id, JSON.stringify(data), String(body._page ?? "").slice(0, 300), now()).lastId;
+    id = run("INSERT INTO form_submissions(form_id, data, page_path, created_at) VALUES(?,?,?,?)", form.id, JSON.stringify(data), pagePath, now()).lastId;
   }
   emit("form.submitted", { form: form.key, id, data, notifyEmail: form.settings.notifyEmail });
+  notifyByEmail(req, form, { id, data, pagePath });
   if (wantsJson) return res.json({ ok: true, message: form.settings.successMessage, redirect: form.settings.redirectUrl || null });
   res.redirect(303, form.settings.redirectUrl || `${localPath(body._page).split("?")[0]}?submitted=1`);
 });

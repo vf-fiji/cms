@@ -280,8 +280,8 @@ export function FormBuilder() {
           <Field label="Redirect after submit" help="Optional. Send people to a thank-you page instead.">
             <input className="input" placeholder="/thank-you" value={form.settings.redirectUrl ?? ""} onChange={(e) => set({ settings: { ...form.settings, redirectUrl: e.target.value } })} />
           </Field>
-          <Field label="Notification email" help="Passed to the form.submitted hook. Add a server function in Code Studio to send email through your provider.">
-            <input className="input" type="email" placeholder="team@example.com" value={form.settings.notifyEmail ?? ""} onChange={(e) => set({ settings: { ...form.settings, notifyEmail: e.target.value } })} />
+          <Field label="Notification email" help="Each response is emailed here as it arrives. Separate several addresses with commas. Needs SMTP set up on the server.">
+            <input className="input" type="text" inputMode="email" autoComplete="off" placeholder="team@example.com, sales@example.com" value={form.settings.notifyEmail ?? ""} onChange={(e) => set({ settings: { ...form.settings, notifyEmail: e.target.value } })} />
           </Field>
           <Switch checked={form.settings.storeSubmissions} onChange={(v) => set({ settings: { ...form.settings, storeSubmissions: v } })} label="Store responses in Reef" />
           <div className="divider" />

@@ -300,6 +300,95 @@ describe("over HTTP", () => {
     assert.equal((await call("203.0.113.8")).status, 200, "another visitor isn't blocked");
   });
 
+  // Each submission comes from its own address so the form rate limit above doesn't apply.
+  let visitor = 0;
+  const submitForm = (key: string, body: Record<string, unknown>) =>
+    fetch(`${server.url}/api/public/forms/${key}/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Forwarded-For": `198.51.100.${++visitor}` },
+      body: JSON.stringify(body),
+    });
+  /** Header lines of a raw message (folded lines unfolded). */
+  const headersOf = (msg: string) => msg.slice(0, msg.indexOf("\r\n\r\n")).replace(/\r\n[ \t]+/g, " ").split("\r\n");
+
+  it("checks notification email addresses when a form is saved", async () => {
+    const admin = new Client(server.url);
+    await admin.login(ADMIN.email, password);
+    const form = (await admin.post("/api/forms", { name: "Notify Check" })).body;
+    const save = (notifyEmail: string) => admin.put(`/api/forms/${form.id}`, { settings: { ...form.settings, notifyEmail } });
+
+    const ok = await save(" Coach@Test.local, scout@test.local;coach@test.local ");
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.settings.notifyEmail, "coach@test.local, scout@test.local", "trimmed, lower-cased, de-duplicated");
+    assert.equal((await save("")).body.settings.notifyEmail, "");
+
+    for (const bad of [
+      "not-an-email",
+      "team@test.local\r\nBcc: evil@test.local",
+      "team@test.local\nSubject: hi",
+      "Team <team@test.local>",
+      '"x" team@test.local',
+      "team@test.local evil@test.local",
+      Array.from({ length: 11 }, (_, i) => `p${i}@test.local`).join(","),
+    ]) {
+      const r = await save(bad);
+      assert.equal(r.status, 400, JSON.stringify(bad));
+    }
+    assert.equal((await admin.get(`/api/forms/${form.id}`)).body.settings.notifyEmail, "", "bad values aren't stored");
+  });
+
+  it("emails each response to the notification addresses without injecting headers", async () => {
+    const admin = new Client(server.url);
+    await admin.login(ADMIN.email, password);
+    const form = (await admin.post("/api/forms", { name: "Tryouts" })).body;
+    const saved = await admin.put(`/api/forms/${form.id}`, {
+      name: "Tryouts\r\nBcc: evil@test.local",
+      settings: { ...form.settings, notifyEmail: "coach@test.local, scout@test.local" },
+    });
+    assert.equal(saved.status, 200);
+
+    const before = smtp.messages.length;
+    const r = await submitForm(form.key, { name: "Ana\r\nBcc: evil@test.local", email: "ana@example.com", message: "Line one\nLine two", _page: "/join-us" });
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).ok, true);
+
+    const msg = await waitFor(() => smtp.messages.slice(before).find((m) => /Subject: New response: Tryouts/.test(m)));
+    const headers = headersOf(msg);
+    assert.ok(headers.some((h) => /^To: coach@test\.local, scout@test\.local$/i.test(h)), headers.join("\n"));
+    assert.ok(headers.includes("Subject: New response: Tryouts Bcc: evil@test.local"), "the form name stays inside the subject");
+    assert.ok(!headers.some((h) => /^bcc:/i.test(h)), "no injected Bcc header");
+
+    const body = decode(msg).replace(/\r\n/g, "\n");
+    assert.match(body, /Form: Tryouts/);
+    assert.match(body, /Page: \/join-us/);
+    assert.match(body, /Name:\n {2}Ana\n {2}Bcc: evil@test\.local/, "values are in the body, indented");
+    assert.match(body, /Email:\n {2}ana@example\.com/);
+    assert.match(body, /Message:\n {2}Line one\n {2}Line two/);
+    assert.ok(body.includes(`${server.url}/admin/forms/${form.id}?tab=responses`), "links to the inbox using REEF_PUBLIC_URL");
+
+    const subs = await admin.get(`/api/forms/${form.id}/submissions`);
+    assert.equal(subs.body.length, 1, "the response is stored too");
+  });
+
+  it("emails responses of forms that don't store them, and sends nothing without an address", async () => {
+    const admin = new Client(server.url);
+    await admin.login(ADMIN.email, password);
+    const form = (await admin.post("/api/forms", { name: "Email Only" })).body;
+    await admin.put(`/api/forms/${form.id}`, { settings: { ...form.settings, storeSubmissions: false, notifyEmail: "office@test.local" } });
+    const before = smtp.messages.length;
+    assert.equal((await submitForm(form.key, { name: "Bo", email: "bo@example.com", message: "Hi" })).status, 200);
+    const msg = await waitFor(() => smtp.messages.slice(before).find((m) => m.includes("Subject: New response: Email Only")));
+    assert.match(decode(msg), /only copy/);
+    assert.equal((await admin.get(`/api/forms/${form.id}/submissions`)).body.length, 0);
+
+    const quiet = (await admin.post("/api/forms", { name: "No Notify" })).body;
+    const count = smtp.messages.length;
+    assert.equal((await submitForm(quiet.key, { name: "Cy", email: "cy@example.com", message: "Hi" })).status, 200);
+    assert.equal((await submitForm(form.key, { name: "Bo", email: "bo@example.com", message: "Hi", _hp: "bot" })).status, 200);
+    await wait(300);
+    assert.equal(smtp.messages.length, count, "no email without a notification address or for honeypot hits");
+  });
+
   /** Runs an npm script the way README.md documents it. */
   const npmRun = (args: string, dataDir: string) =>
     new Promise<{ code: number | null; log: string }>((resolve) => {
@@ -356,5 +445,50 @@ describe("over HTTP", () => {
       await second.stop();
       fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
+  });
+});
+
+describe("form notification email failures", () => {
+  let server: TestServer;
+  let smtp: net.Server;
+
+  before(async () => {
+    // Slow to answer, then refuses the message.
+    smtp = net.createServer((sock) => {
+      sock.on("error", () => {});
+      setTimeout(() => {
+        sock.write("220 slow ESMTP\r\n");
+        sock.on("data", (chunk) => {
+          const cmd = chunk.toString("utf8").slice(0, 4).toUpperCase();
+          if (cmd === "EHLO" || cmd === "HELO") sock.write("250 slow\r\n");
+          else if (cmd === "QUIT") sock.end("221 bye\r\n");
+          else sock.write("550 mailbox unavailable\r\n");
+        });
+      }, 1500);
+    });
+    await new Promise<void>((resolve) => smtp.listen(0, "127.0.0.1", resolve));
+    server = await startServer({ env: { SMTP_HOST: "127.0.0.1", SMTP_PORT: String((smtp.address() as net.AddressInfo).port) } });
+  });
+  after(async () => {
+    await server?.stop();
+    smtp?.close();
+  });
+
+  it("never fails or slows down a submission, and logs the failure", async () => {
+    const admin = new Client(server.url);
+    await admin.login(ADMIN.email, ADMIN.password);
+    const form = (await admin.post("/api/forms", { name: "Flaky Mail" })).body;
+    await admin.put(`/api/forms/${form.id}`, { settings: { ...form.settings, notifyEmail: "office@test.local" } });
+
+    const started = Date.now();
+    const r = await fetch(`${server.url}/api/public/forms/${form.key}/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ name: "Di", email: "di@example.com", message: "Hello" }),
+    });
+    assert.equal(r.status, 200);
+    assert.ok(Date.now() - started < 1000, "the response doesn't wait for the mail server");
+    assert.equal((await admin.get(`/api/forms/${form.id}/submissions`)).body.length, 1);
+    await waitFor(() => (/\[forms\] Couldn't email the response to “flaky-mail”/.test(server.output()) ? true : undefined));
   });
 });

@@ -104,10 +104,10 @@ The value is passed to Express's [`trust proxy`](https://expressjs.com/en/guide/
 |---|---|---|
 | `PORT` / `HOST` | `4400` / `127.0.0.1` | Listen address. The Docker image uses `0.0.0.0`. |
 | `REEF_DATA_DIR` | `./data` | Database (`reef.db`) and `uploads/`. `/data` in Docker. |
-| `REEF_PUBLIC_URL` | (none) | Public `https://` address, used in password reset links. **Required in production for resets.** Links are never built from the request's `Host` header, which anyone can forge. |
+| `REEF_PUBLIC_URL` | (none) | Public `https://` address, used in password reset links and the inbox link in form notification emails. **Required in production for resets.** Links are never built from the request's `Host` header, which anyone can forge. |
 | `REEF_TRUST_PROXY` | `loopback` | See above. |
 | `REEF_ADMIN_EMAIL` / `REEF_ADMIN_PASSWORD` | random | First administrator, used only when the database is created. |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | (none), `587`, `true` on port 465 | Outgoing email. See [Password recovery](#password-recovery). |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | (none), `587`, `true` on port 465 | Outgoing email (password resets, form notifications). See [Password recovery](#password-recovery). |
 | `REEF_RESET_TTL_MINUTES` | `60` | How long a reset link works. |
 | `REEF_RATE_LIMIT_FORMS` / `REEF_RATE_LIMIT_FN` / `REEF_RATE_LIMIT_RESET` | `10` / `120` / `5` | See [Rate limits](#rate-limits). `0` turns a limit off. |
 | `REEF_BACKUP_DIR` / `REEF_BACKUP_KEEP` | `./backups` / keep all | See [Backups and restore](#backups-and-restore). `/backups` in Docker. |
@@ -185,6 +185,8 @@ The test suite backs up a running server with `npm run backup`, checks that `npm
 - **Development without SMTP:** emails, links included, are printed to the console.
 - **Production without SMTP:** nothing is sent and links are never logged. The server logs a warning instead. Administrators can still reset someone's password under **Users**.
 
+**Form notifications.** Under **Forms → (form) → Settings → Notification email**, enter one address or several separated by commas. Each accepted response is then emailed there as plain text: the form name, the page it was sent from, every field's label and value, and a link to the responses inbox (`REEF_PUBLIC_URL/admin/forms/<id>?tab=responses`). Forms that don't store responses still send the email, which is then the only copy. Addresses are checked when the form is saved (plain addresses only, at most 10), and nothing a visitor types goes into an email header. Sending happens after the visitor gets their answer, so a slow or broken mail server never fails or delays a submission; failures are logged with `[forms]`. Honeypot hits and rate-limited requests send nothing. The `form.submitted` hook still runs and still receives `notifyEmail`.
+
 The sender is pluggable. `server/mail.ts` defines a `MailTransport` interface (`send({ to, subject, text, html })`). Call `setMailTransport()` at start-up to use an HTTP email API instead of SMTP.
 
 ## Rate limits
@@ -211,7 +213,7 @@ Form posts made without JavaScript get a short HTML page instead of JSON. Many m
 | **Content types** | Visual builder with 19 field types (text, rich text, image, gallery, reference, repeater, code…), optional detail pages at `/prefix/slug` with a Liquid template, and drag-to-reorder fields. | Module Builder |
 | **Content** | Search, status filters, bulk publish/unpublish/delete, manual drag ordering, tags and categories, scheduling, revisions with restore. | Content modules |
 | **Media** | Folders, drag-and-drop upload anywhere on screen, alt-text prompts, usage check before delete. Files are validated by signature. | Libraries |
-| **Forms** | Visual builder, responses inbox (read/unread), CSV export, honeypot spam check, hooks. | Forms |
+| **Forms** | Visual builder, responses inbox (read/unread), CSV export, honeypot spam check, email notifications, hooks. | Forms |
 | **Templates** | Liquid HTML/CSS/JS/head, one default plus any number of alternates. | Page templates |
 | **Code Studio** | IDE with tabs, syntax highlighting, Ctrl+S, site-wide CSS/JS/HTML files, widgets, and **server functions**: API endpoints (`/api/fn/<route>`), event hooks (before/after content save, publish, form submit, upload) and scheduled jobs, with a test runner and logs. | Custom code + deployment |
 | **Workflow** | Draft → Publish, "Changes pending" on live pages, discard changes, Authors' publishes go to review, scheduled publishing, full revision history. | Workflow + revision history |
@@ -270,7 +272,7 @@ Tests use Node's built-in runner and live in `tests/*.suite.ts`. The `.suite.ts`
 - `tailwind.suite.ts`: class extraction, per-page compilation, brand colours, custom theme CSS, Preflight, cascade layers.
 - `layout.suite.ts`: the page editor's layout-tree operations.
 - `sitegraph.suite.ts`: the site map graph (hierarchy, content, forms, link detection, de-duplication).
-- `ops.suite.ts`: deployment features. Reset tokens (hashed storage, single use, expiry, invalidation), the full forgot/reset flow over HTTP against a fake SMTP server, `npm run backup` on a running server followed by a restore, rate limits on forms, `/api/fn` and reset requests, and per-visitor counting behind a trusted proxy.
+- `ops.suite.ts`: deployment features. Reset tokens (hashed storage, single use, expiry, invalidation), the full forgot/reset flow over HTTP against a fake SMTP server, form notification emails (address checks, header injection, forms that don't store responses, a slow and failing mail server), `npm run backup` on a running server followed by a restore, rate limits on forms, `/api/fn` and reset requests, and per-visitor counting behind a trusted proxy.
 
 ## Architecture
 
@@ -295,4 +297,4 @@ Every page declares cascade layers up front: `theme, base, reef, components, uti
 
 ## Not built yet
 
-These are honest gaps against Sitefinity: multilingual content, personalization/A-B testing, multi-site, image resizing/cropping and responsive `srcset`, a full-text search index, form notification emails (Reef sends password reset emails, but the form “Notify email” setting isn’t wired up yet; use a `form.submitted` hook with your mail provider), and SSO. Drag-and-drop in the page editor was verified with synthetic drag events, not a physical mouse.
+These are honest gaps against Sitefinity: multilingual content, personalization/A-B testing, multi-site, image resizing/cropping and responsive `srcset`, a full-text search index, and SSO. Form notification emails are plain text with no per-form template or HTML version; use a `form.submitted` hook if you need more. Drag-and-drop in the page editor was verified with synthetic drag events, not a physical mouse.
