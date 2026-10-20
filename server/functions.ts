@@ -4,6 +4,7 @@
 // enforces a CPU timeout, but it is NOT a security boundary: only trusted
 // developers (the "code.edit" permission) can author functions.
 import vm from "node:vm";
+import { Worker } from "node:worker_threads";
 import { all, get, run, json, now, getSettings, slugify } from "./db";
 import { getTypeByKey, listPublishedItems, getPublishedItem, itemForTemplate, mapItem } from "./content";
 import type { ServerFunction } from "../shared/types";
@@ -54,7 +55,7 @@ interface LogLine {
 
 const RESPONSE = Symbol.for("reef.response");
 
-function buildCmsApi() {
+export function buildCmsApi() {
   return Object.freeze({
     content: Object.freeze({
       list: (typeKey: string, opts: any = {}) => {
@@ -197,8 +198,94 @@ function persistRun(fnId: number, outcome: { ok: boolean; logs: LogLine[]; ms: n
   run("DELETE FROM function_logs WHERE function_id = ? AND id NOT IN (SELECT id FROM function_logs WHERE function_id = ? ORDER BY id DESC LIMIT 300)", fnId, fnId);
 }
 
-export async function runFunction(fn: ServerFunction, input: Record<string, unknown>) {
-  const outcome = await executeCode(fn.code, { ...input, cms: buildCmsApi(), log: (...a: unknown[]) => console.log(...a) });
+// ---------- worker pool ----------
+// Each call runs in a worker thread. If it overruns, the worker is terminated:
+// that stops any kind of runaway code, including loops after an `await`.
+type Outcome = Awaited<ReturnType<typeof executeCode>>;
+interface Slot {
+  worker: Worker;
+  busy: boolean;
+}
+const POOL_MAX = Math.max(1, Number(process.env.REEF_FN_WORKERS) || 4);
+const MEMORY_MB = Math.max(32, Number(process.env.REEF_FN_MEMORY_MB) || 256);
+export const FUNCTION_TIMEOUT_MS = Math.max(100, Number(process.env.REEF_FN_TIMEOUT_MS) || 10_000);
+const slots: Slot[] = [];
+const waiting: ((s: Slot) => void)[] = [];
+let jobSeq = 0;
+
+function spawnSlot(): Slot {
+  const worker = new Worker(new URL("./function-worker.ts", import.meta.url), {
+    execArgv: ["--import", "tsx"],
+    resourceLimits: { maxOldGenerationSizeMb: MEMORY_MB },
+  });
+  worker.unref(); // never keep the process alive just for idle workers
+  const slot: Slot = { worker, busy: false };
+  worker.on("exit", () => {
+    const i = slots.indexOf(slot);
+    if (i >= 0) slots.splice(i, 1);
+  });
+  slots.push(slot);
+  return slot;
+}
+
+function acquire(): Promise<Slot> {
+  const idle = slots.find((s) => !s.busy);
+  if (idle) return Promise.resolve(idle);
+  if (slots.length < POOL_MAX) return Promise.resolve(spawnSlot());
+  return new Promise((resolve) => waiting.push(resolve));
+}
+
+function release(slot: Slot) {
+  slot.busy = false;
+  const next = waiting.shift();
+  if (next) next(slots.includes(slot) ? slot : spawnSlot());
+}
+
+function discard(slot: Slot) {
+  const i = slots.indexOf(slot);
+  if (i >= 0) slots.splice(i, 1);
+  void slot.worker.terminate();
+  const next = waiting.shift();
+  if (next) next(spawnSlot());
+}
+
+/** Starts one worker ahead of time so the first request isn't slowed by start-up. */
+export function warmFunctionWorkers() {
+  if (!slots.length) spawnSlot();
+}
+
+export async function runInWorker(code: string, args: Record<string, unknown>, timeoutMs = FUNCTION_TIMEOUT_MS): Promise<Outcome> {
+  const slot = await acquire();
+  slot.busy = true;
+  const started = performance.now();
+  const id = ++jobSeq;
+  return new Promise<Outcome>((resolve) => {
+    const finish = (outcome: Outcome, healthy: boolean) => {
+      clearTimeout(timer);
+      slot.worker.off("message", onMessage);
+      slot.worker.off("error", onError);
+      if (healthy) release(slot);
+      else discard(slot);
+      resolve(outcome);
+    };
+    const fail = (error: string): Outcome => ({ ok: false, error, logs: [{ level: "error", message: error, at: now() }], ms: Math.round(performance.now() - started) });
+    // a little longer than the in-worker limit, so ordinary timeouts report from inside with their logs
+    const timer = setTimeout(() => finish(fail(`Timed out after ${timeoutMs / 1000}s and was stopped`), false), timeoutMs + 500);
+    const onMessage = (m: { id: number; outcome: Outcome }) => m.id === id && finish(m.outcome, true);
+    const onError = (err: any) =>
+      finish(fail(err?.code === "ERR_WORKER_OUT_OF_MEMORY" ? `Ran out of memory (limit ${MEMORY_MB} MB) and was stopped` : `The function crashed: ${err?.message ?? err}`), false);
+    slot.worker.on("message", onMessage);
+    slot.worker.once("error", onError);
+    try {
+      slot.worker.postMessage({ id, code, args, timeoutMs });
+    } catch (e: any) {
+      finish(fail(`The function's input couldn't be passed to it: ${e?.message ?? e}`), true);
+    }
+  });
+}
+
+export async function runFunction(fn: ServerFunction, input: Record<string, unknown>, opts: { timeoutMs?: number } = {}) {
+  const outcome = await runInWorker(fn.code, input, opts.timeoutMs);
   persistRun(fn.id, outcome);
   return outcome;
 }
@@ -212,8 +299,17 @@ export async function invokeEndpointByRoute(route: string, req: FnInput) {
   return unwrap(outcome.result).body;
 }
 
+/**
+ * cms.respond() marks its result with a Symbol, which doesn't survive being
+ * posted between threads. Workers send this plain form instead.
+ */
+export function toTransferable(result: any) {
+  if (result && typeof result === "object" && result[RESPONSE]) return { __reefResponse: true, status: result.status, headers: result.headers, body: result.body };
+  return result;
+}
+
 export function unwrap(result: any): { status: number; headers: Record<string, string>; body: unknown } {
-  if (result && typeof result === "object" && result[RESPONSE]) return { status: result.status, headers: result.headers, body: result.body };
+  if (result && typeof result === "object" && (result[RESPONSE] || result.__reefResponse === true)) return { status: result.status, headers: result.headers, body: result.body };
   return { status: 200, headers: {}, body: result === undefined ? null : result };
 }
 

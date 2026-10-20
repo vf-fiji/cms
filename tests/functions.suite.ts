@@ -116,6 +116,34 @@ describe("the cms API", () => {
   });
 });
 
+describe("worker isolation", () => {
+  it("stops a busy loop that starts after an await, then keeps serving", async () => {
+    const loop = addFunction({ name: "late loop", kind: "endpoint", route: "late-loop", code: `export default async () => { await new Promise((r) => setTimeout(r, 10)); for (;;) {} };` });
+    const started = Date.now();
+    const out = await runFunction(loop, {}, { timeoutMs: 400 });
+    assert.equal(out.ok, false);
+    assert.match((out as any).error, /Timed out after 0.4s and was stopped/);
+    assert.ok(Date.now() - started < 3000, "the runaway worker was terminated promptly");
+    const ok = addFunction({ name: "after", kind: "endpoint", route: "after-loop", code: `export default () => ({ fine: true });` });
+    assert.deepEqual(((await runFunction(ok, {})) as any).result, { fine: true });
+  });
+
+  it("runs calls in parallel without one blocking another", async () => {
+    const slow = addFunction({ name: "slow", kind: "endpoint", route: "slow", code: `export default async () => { await new Promise((r) => setTimeout(r, 300)); return "slow"; };` });
+    const fast = addFunction({ name: "fast", kind: "endpoint", route: "fast", code: `export default () => "fast";` });
+    const order: string[] = [];
+    await Promise.all([runFunction(slow, {}).then(() => order.push("slow")), runFunction(fast, {}).then(() => order.push("fast"))]);
+    assert.deepEqual(order, ["fast", "slow"]);
+  });
+
+  it("explains results that can't be sent back from the worker", async () => {
+    const fn = addFunction({ name: "returns fn", kind: "endpoint", route: "returns-fn", code: `export default () => ({ cb: () => 1 });` });
+    const out = await runFunction(fn, {});
+    assert.equal(out.ok, false);
+    assert.match((out as any).error, /can't be sent back/);
+  });
+});
+
 describe("hooks", () => {
   it("lets before-hooks transform the payload, in order", async () => {
     addFunction({ name: "upper", kind: "hook", event: "test.beforeA", code: `export default ({ payload }) => ({ ...payload, title: payload.title.toUpperCase() });` });

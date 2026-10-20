@@ -17,7 +17,7 @@ import { recovery } from "./api/recovery";
 import { parseTrustProxy } from "./http";
 import { getMailTransport } from "./mail";
 import { renderPublicPath, renderPageSnapshot, renderContentDetail, computePaths, sitemapXml, type PageSnapshot } from "./render/site";
-import { runDueSchedules } from "./functions";
+import { runDueSchedules, warmFunctionWorkers } from "./functions";
 import { seedIfEmpty } from "./seed";
 import { reactRuntime, getBrowserModule } from "./react";
 import { backfillVariants } from "./images";
@@ -132,6 +132,7 @@ async function mountAdmin() {
 async function start() {
   await mountAdmin();
   reactRuntime().catch((e) => console.error("[react] Couldn't build the React runtime:", e?.message ?? e));
+  if (get("SELECT 1 FROM functions WHERE enabled = 1 LIMIT 1")) warmFunctionWorkers();
   // responsive copies for images uploaded before resizing existed (runs in the background)
   setTimeout(() => void backfillVariants(true).catch((e) => console.error("[images]", e?.message ?? e)), 2000).unref();
 
