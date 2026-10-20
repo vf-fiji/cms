@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { FieldDef, MediaItem } from "../../shared/types";
 import { Icon } from "../lib/icons";
 import { api } from "../lib/api";
-import { Button, Field, Switch } from "./ui";
+import { Button, Field, Switch, press } from "./ui";
 import { RichText } from "./RichText";
 import { CodeField } from "./CodeEditor";
 import { MediaPicker } from "./MediaPicker";
@@ -37,7 +37,7 @@ export function ImageField({ value, onChange, accept = "image" }: { value: strin
   const isImage = accept === "image" || /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(value || "");
   return (
     <div className="image-field">
-      <div className="image-field-preview" onClick={() => setOpen(true)} title="Choose from media library">
+      <div className="image-field-preview" {...press(() => setOpen(true))} title="Choose from media library">
         {value ? isImage ? <img src={value} alt="" /> : <Icon name="FileText" size={20} /> : <Icon name={accept === "image" ? "Image" : "Upload"} size={20} />}
       </div>
       <div className="col grow" style={{ gap: 6 }}>
@@ -168,7 +168,7 @@ function Repeater({ field, value, onChange }: { field: FieldDef; value: any[]; o
     <div className="repeater">
       {list.map((item, i) => (
         <div key={i} className="repeater-item">
-          <div className="repeater-head" onClick={() => setOpen(open === i ? null : i)}>
+          <div className="repeater-head" {...press(() => setOpen(open === i ? null : i))}>
             <Icon name={open === i ? "ChevronDown" : "ChevronRight"} size={14} />
             <span className="grow truncate">{String(title(item, i))}</span>
             <Button size="sm" variant="ghost" iconOnly icon="ArrowUp" aria-label="Move up" onClick={(e) => (e.stopPropagation(), move(i, -1))} />
@@ -245,7 +245,7 @@ export function FieldInput({ field, value, onChange }: { field: FieldDef; value:
     case "color":
       return (
         <div className="color-input">
-          <input type="color" value={/^#[0-9a-f]{6}$/i.test(value ?? "") ? value : "#000000"} onChange={(e) => onChange(e.target.value)} aria-label={field.label} />
+          <input type="color" value={/^#[0-9a-f]{6}$/i.test(value ?? "") ? value : "#000000"} onChange={(e) => onChange(e.target.value)} aria-label={`${field.label} colour picker`} />
           <input className="input" value={value ?? ""} placeholder="Default" onChange={(e) => onChange(e.target.value)} />
           {value && <Button size="sm" variant="ghost" iconOnly icon="X" aria-label="Clear colour" onClick={() => onChange("")} />}
         </div>

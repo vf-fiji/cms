@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { Icon } from "../lib/icons";
 import { timeAgo, bytes } from "../lib/format";
-import { Button, ErrorState, SkeletonRows, useLoad } from "../components/ui";
+import { Button, ErrorState, SkeletonRows, useLoad, press } from "../components/ui";
 
 interface Dash {
   stats: Record<string, number>;
@@ -29,7 +29,7 @@ export function Dashboard() {
   if (error) return <div className="page"><ErrorState message={error} onRetry={reload} /></div>;
   const s = data?.stats;
   const stat = (icon: string, color: string, label: string, value: React.ReactNode, meta: React.ReactNode, to?: string) => (
-    <div className="card stat" style={{ cursor: to ? "pointer" : undefined }} onClick={() => to && nav(to)}>
+    <div className="card stat" style={{ cursor: to ? "pointer" : undefined }} {...(to ? press(() => nav(to)) : {})}>
       <div className="stat-label">
         <span className="stat-icon" style={{ background: `${color}1a`, color }}>
           <Icon name={icon} size={15} />
@@ -43,9 +43,9 @@ export function Dashboard() {
   return (
     <div className="page">
       <div className="hero-card">
-        <h2>
-          {greeting()}, {user?.name.split(" ")[0]} 👋
-        </h2>
+        <h1>
+          {greeting()}, {user?.name.split(" ")[0]} <span aria-hidden="true">👋</span>
+        </h1>
         <p>Here's what's happening on your website. Jump back in or start something new.</p>
         <div className="row row-wrap">
           {can("pages.edit") && <Button className="btn-white" icon="FilePlus2" onClick={() => nav("/pages?new=1")}>New page</Button>}
@@ -92,7 +92,7 @@ export function Dashboard() {
             ) : (
               <div className="list">
                 {data.review.map((r) => (
-                  <div key={`r${r.kind}${r.id}`} className="list-item" onClick={() => nav(r.kind === "page" ? `/pages/${r.id}` : `/content/${r.typeKey}/${r.id}`)}>
+                  <div key={`r${r.kind}${r.id}`} className="list-item" {...press(() => nav(r.kind === "page" ? `/pages/${r.id}` : `/content/${r.typeKey}/${r.id}`))}>
                     <span className="list-icon" style={{ background: "var(--warn-soft)", color: "var(--warn)" }}>
                       <Icon name="Eye" size={15} />
                     </span>
@@ -106,7 +106,7 @@ export function Dashboard() {
                   </div>
                 ))}
                 {data.drafts.map((d) => (
-                  <div key={`d${d.id}`} className="list-item" onClick={() => nav(`/pages/${d.id}`)}>
+                  <div key={`d${d.id}`} className="list-item" {...press(() => nav(`/pages/${d.id}`))}>
                     <span className="list-icon">
                       <Icon name="FileText" size={15} />
                     </span>
@@ -137,7 +137,7 @@ export function Dashboard() {
                 {data.recentSubmissions.map((r) => {
                   const first = Object.values(r.data).find((v) => typeof v === "string" && v) as string | undefined;
                   return (
-                    <div key={r.id} className="list-item" onClick={() => nav(`/forms/${r.formId}?tab=responses`)}>
+                    <div key={r.id} className="list-item" {...press(() => nav(`/forms/${r.formId}?tab=responses`))}>
                       <span className="list-icon" style={!r.isRead ? { background: "var(--accent-soft)", color: "var(--accent-text)" } : undefined}>
                         <Icon name="Mail" size={15} />
                       </span>

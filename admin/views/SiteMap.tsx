@@ -108,7 +108,7 @@ export function SiteMap() {
         <div className="row" style={{ gap: 10 }}>
           <span className="sitemap-logo"><Icon name="Globe" size={16} /></span>
           <div>
-            <div className="sitemap-title">Site map</div>
+            <h1 className="sitemap-title" style={{ margin: 0 }}>Site map</h1>
             {graph && (
               <div className="sitemap-sub">
                 {graph.stats.pages} pages · {graph.stats.types} content types · {graph.stats.totalItems} items · {graph.stats.forms} forms

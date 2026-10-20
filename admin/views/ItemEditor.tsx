@@ -176,11 +176,13 @@ export function ItemEditor() {
         <Icon name="ChevronRight" size={13} />
         <span>{isNew ? `New ${type.singular.toLowerCase()}` : draft.title || "Untitled"}</span>
       </div>
+      <h1 className="sr-only">{item ? `Edit ${type.singular.toLowerCase()}: ${draft.title}` : `New ${type.singular.toLowerCase()}`}</h1>
       <div className="item-editor">
         <div className="card card-pad">
           <input
             ref={titleRef}
             className="title-input"
+            aria-label={`${type.singular} title`}
             placeholder={`${type.singular} title`}
             value={draft.title}
             onChange={(e) => patch({ title: e.target.value, ...(slugTouched ? {} : { slug: slugify(e.target.value) }) })}

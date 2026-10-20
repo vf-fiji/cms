@@ -47,6 +47,8 @@ export interface RenderCtx {
   sources: string[];
   /** where the widget being rendered sits, for responsive image sizes */
   layout?: { sectionWidth: string; colWidth: number };
+  /** level of the last heading a widget wrote, so card titles nest under it (h2 under h1, h3 under h2) */
+  lastHeading?: number;
   nav: NavItem[];
   customWidgets?: Map<string, CustomWidget>;
 }
@@ -76,6 +78,10 @@ export async function renderLayout(layout: PageLayout, ctx: RenderCtx): Promise<
   return out.join("\n");
 }
 
+const ITEM_HEADING_WIDGETS = new Set(["card", "features", "contentList", "search"]);
+/** Heading tag for repeated item titles: one level below the last heading on the page, h2–h4. */
+const itemHeading = (ctx: RenderCtx) => `h${Math.min(4, Math.max(2, (ctx.lastHeading ?? 1) + 1))}`;
+
 async function renderSection(s: SectionNode, ctx: RenderCtx): Promise<string> {
   const p = s.props ?? {};
   const classes = [
@@ -95,7 +101,15 @@ async function renderSection(s: SectionNode, ctx: RenderCtx): Promise<string> {
   for (const c of s.columns ?? []) {
     const widgets: string[] = [];
     ctx.layout = { sectionWidth: p.width || "contained", colWidth: Math.max(1, Math.min(12, c.width || 12)) };
-    for (const w of c.widgets ?? []) widgets.push(await renderWidget(w, ctx));
+    for (const w of c.widgets ?? []) {
+      const html = await renderWidget(w, ctx);
+      // widgets that repeat item titles don't change the outline; everything else (hero, heading, text…) does
+      if (!ITEM_HEADING_WIDGETS.has(w.type)) {
+        const levels = [...html.matchAll(/<h([1-6])[\s>]/g)];
+        if (levels.length) ctx.lastHeading = Number(levels[levels.length - 1][1]);
+      }
+      widgets.push(html);
+    }
     const empty = ctx.editor && !(c.widgets ?? []).length ? `<div class="rfe-empty-col">Drop widgets here</div>` : "";
     cols.push(
       `<div class="rf-col rf-col-${Math.max(1, Math.min(12, c.width || 12))}"${ctx.editor ? attr("data-rf-column", c.id) : ""}>${widgets.join("")}${empty}</div>`,
@@ -184,12 +198,14 @@ async function renderWidgetInner(w: WidgetNode, ctx: RenderCtx): Promise<string>
     case "card": {
       const cardImg = p.image ? `<div class="rf-card-img">${img(String(p.image), ctx)}</div>` : "";
       const link = p.url && p.linkLabel ? `<a class="rf-card-link" href="${e(safeUrl(p.url))}">${e(p.linkLabel)} →</a>` : "";
-      return `<article class="rf-card rf-card-${p.style || "elevated"}">${cardImg}<div class="rf-card-body"><h3>${e(p.title)}</h3><p>${e(p.text)}</p>${link}</div></article>`;
+      const h = itemHeading(ctx);
+      return `<article class="rf-card rf-card-${p.style || "elevated"}">${cardImg}<div class="rf-card-body"><${h}>${e(p.title)}</${h}><p>${e(p.text)}</p>${link}</div></article>`;
     }
     case "features": {
       const items = (p.items ?? []) as any[];
+      const h = itemHeading(ctx);
       return `<div class="rf-features rf-grid-${p.columns || 3}${alignCls}">${items
-        .map((i) => `<div class="rf-feature">${i.icon ? `<div class="rf-feature-icon">${e(i.icon)}</div>` : ""}<h3>${e(i.title)}</h3><p>${e(i.text)}</p></div>`)
+        .map((i) => `<div class="rf-feature">${i.icon ? `<div class="rf-feature-icon" aria-hidden="true">${e(i.icon)}</div>` : ""}<${h}>${e(i.title)}</${h}><p>${e(i.text)}</p></div>`)
         .join("")}</div>`;
     }
     case "stats":
@@ -332,9 +348,10 @@ async function renderContentList(w: WidgetNode, ctx: RenderCtx) {
     html = `<ul class="rf-compact-list">${items.map((i) => `<li><a href="${e(i.url)}">${e(i.title)}</a>${p.showDate ? `<time>${formatDate(i.date)}</time>` : ""}</li>`).join("")}</ul>`;
   } else {
     const isGrid = p.layout !== "list";
+    const h = itemHeading(ctx);
     html = `<div class="${isGrid ? `rf-content-grid rf-grid-${p.columns || 3}` : "rf-content-list"}">${items
       .map(
-        (i) => `<article class="rf-content-card">${p.showImage && i.image ? `<a class="rf-content-img" href="${e(i.url)}">${img(String(i.image), ctx, { share: isGrid ? 1 / Number(p.columns || 3) : 0.34 })}</a>` : ""}<div class="rf-content-body">${p.showDate ? `<time>${formatDate(i.date)}</time>` : ""}<h3><a href="${e(i.url) || "#"}">${e(i.title)}</a></h3>${p.showSummary && i.summary ? `<p>${e(i.summary)}</p>` : ""}${i.tags?.length ? `<div class="rf-tags">${i.tags.map((t: string) => `<span>${e(t)}</span>`).join("")}</div>` : ""}</div></article>`,
+        (i) => `<article class="rf-content-card">${p.showImage && i.image ? `<a class="rf-content-img" href="${e(i.url)}" tabindex="-1" aria-hidden="true">${img(String(i.image), ctx, { share: isGrid ? 1 / Number(p.columns || 3) : 0.34 })}</a>` : ""}<div class="rf-content-body">${p.showDate ? `<time>${formatDate(i.date)}</time>` : ""}<${h}><a href="${e(i.url) || "#"}">${e(i.title)}</a></${h}>${p.showSummary && i.summary ? `<p>${e(i.summary)}</p>` : ""}${i.tags?.length ? `<div class="rf-tags">${i.tags.map((t: string) => `<span>${e(t)}</span>`).join("")}</div>` : ""}</div></article>`,
       )
       .join("")}</div>`;
   }

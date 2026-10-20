@@ -5,7 +5,7 @@ import { api, ApiError } from "../lib/api";
 import { Icon } from "../lib/icons";
 import { useAuth } from "../lib/auth";
 import { bytes, formatDate } from "../lib/format";
-import { Button, confirmDialog, Drawer, Empty, ErrorState, Field, promptDialog, SkeletonRows, toast, useLoad } from "../components/ui";
+import { Button, confirmDialog, Drawer, Empty, ErrorState, Field, promptDialog, SkeletonRows, toast, useLoad, press } from "../components/ui";
 import { MediaThumb, uploadFiles } from "../components/MediaPicker";
 
 export function Media() {
@@ -111,14 +111,14 @@ export function Media() {
       <div className="media-layout">
         <div>
           <div className="col" style={{ gap: 2 }}>
-            <div className={`folder-item ${folder === "__all" ? "active" : ""}`} onClick={() => setFolder("__all")}>
+            <div className={`folder-item ${folder === "__all" ? "active" : ""}`} {...press(() => setFolder("__all"))}>
               <Icon name="Images" size={16} /> All files <span className="count">{data?.total ?? ""}</span>
             </div>
-            <div className={`folder-item ${folder === "" ? "active" : ""}`} onClick={() => setFolder("")}>
+            <div className={`folder-item ${folder === "" ? "active" : ""}`} {...press(() => setFolder(""))}>
               <Icon name="Inbox" size={16} /> Unfiled <span className="count">{data?.counts[""] ?? 0}</span>
             </div>
             {folders.map((f) => (
-              <div key={f} className={`folder-item ${folder === f ? "active" : ""}`} onClick={() => setFolder(f)}>
+              <div key={f} className={`folder-item ${folder === f ? "active" : ""}`} {...press(() => setFolder(f))}>
                 <Icon name={folder === f ? "FolderOpen" : "Folder"} size={16} /> <span className="truncate">{f}</span> <span className="count">{data?.counts[f] ?? 0}</span>
               </div>
             ))}

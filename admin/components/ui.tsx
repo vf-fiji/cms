@@ -1,7 +1,18 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Children, cloneElement, isValidElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "../lib/icons";
 import { ApiError } from "../lib/api";
+
+// ---------- keyboard access for clickable cards, rows and list items ----------
+const activateKeys = (fn: (e: any) => void) => (e: React.KeyboardEvent) => {
+  if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+  e.preventDefault();
+  fn(e);
+};
+/** Makes a non-button element focusable and operable with Enter/Space, like a button. */
+export const press = (fn: (e: any) => void) => ({ role: "button" as const, tabIndex: 0, onClick: fn, onKeyDown: activateKeys(fn) });
+/** Same for a table row; it keeps its row role so the table still reads as a table. */
+export const pressRow = (fn: (e: any) => void) => ({ tabIndex: 0, onClick: fn, onKeyDown: activateKeys(fn) });
 
 // ---------- Button ----------
 type BtnProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -25,20 +36,54 @@ export function Button({ variant = "default", size = "md", icon, iconRight, load
 }
 
 // ---------- Field ----------
+const CONTROLS = new Set(["input", "select", "textarea"]);
+
+/**
+ * Gives the first native input/select/textarea in `children` (looking inside plain wrappers
+ * like input groups) the id, description and invalid state of its field. Returns whether one was found.
+ */
+function linkControl(children: ReactNode, a11y: Record<string, unknown>, depth = 0): [ReactNode, boolean] {
+  let found = false;
+  const out = Children.map(children, (child) => {
+    if (found || !isValidElement(child) || typeof child.type !== "string" || depth > 3) return child;
+    const el = child as ReactElement<Record<string, any>>;
+    // a colour swatch sits next to its hex input, which is the one the label names
+    if (CONTROLS.has(el.type as string) && el.props.type !== "hidden" && el.props.type !== "color") {
+      found = true;
+      const extra: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(a11y)) if (v !== undefined && el.props[k] === undefined) extra[k] = v;
+      return cloneElement(el, extra);
+    }
+    if (el.props.children === undefined) return child;
+    const [inner, ok] = linkControl(el.props.children, a11y, depth + 1);
+    if (!ok) return child;
+    found = true;
+    return cloneElement(el, undefined, inner);
+  });
+  return [out, found];
+}
+
 export function Field({ label, help, error, required, children, htmlFor, action }: { label?: ReactNode; help?: ReactNode; error?: string | null; required?: boolean; children: ReactNode; htmlFor?: string; action?: ReactNode }) {
+  const uid = useId();
+  const noteId = error || help ? `${uid}-note` : undefined;
+  const [linked, found] = label
+    ? linkControl(children, { id: htmlFor ?? `${uid}-control`, "aria-describedby": noteId, "aria-invalid": error ? true : undefined, "aria-required": required || undefined })
+    : [children, false];
+  const controlId = htmlFor ?? (found ? `${uid}-control` : undefined);
   return (
-    <div className="field">
+    // custom controls (image pickers, code editors…) are named by the field label as a group
+    <div className="field" role={label && !controlId ? "group" : undefined} aria-labelledby={label && !controlId ? `${uid}-label` : undefined}>
       {label && (
         <div className="row">
-          <label className="label grow" htmlFor={htmlFor}>
+          <label className="label grow" id={`${uid}-label`} htmlFor={controlId}>
             {label}
-            {required && <span className="req">*</span>}
+            {required && <span className="req" aria-hidden="true">*</span>}
           </label>
           {action}
         </div>
       )}
-      {children}
-      {error ? <div className="error-text">{error}</div> : help ? <div className="help">{help}</div> : null}
+      {linked}
+      {error ? <div className="error-text" id={noteId} role="alert">{error}</div> : help ? <div className="help" id={noteId}>{help}</div> : null}
     </div>
   );
 }

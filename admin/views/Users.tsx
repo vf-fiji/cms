@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { Icon } from "../lib/icons";
 import { useAuth } from "../lib/auth";
 import { initials, timeAgo } from "../lib/format";
-import { Button, confirmDialog, ErrorState, Field, Menu, Modal, SkeletonRows, toast, useLoad } from "../components/ui";
+import { Button, confirmDialog, ErrorState, Field, Menu, Modal, SkeletonRows, toast, useLoad, press } from "../components/ui";
 
 export function Users() {
   const { user: me } = useAuth();
@@ -62,7 +62,7 @@ export function Users() {
                   <th>Role</th>
                   <th>Status</th>
                   <th>Last sign-in</th>
-                  <th />
+                  <th><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -124,7 +124,7 @@ export function Users() {
       {tab === "roles" && (
         <div className="cards-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
           {roles.data?.map((r) => (
-            <div key={r.id} className="card type-card" onClick={() => setEditingRole(r)}>
+            <div key={r.id} className="card type-card" {...press(() => setEditingRole(r))}>
               <div className="row">
                 <span className="list-icon" style={{ background: "var(--accent-soft)", color: "var(--accent-text)" }}><Icon name={r.name === "Administrator" ? "Shield" : "ShieldCheck"} size={16} /></span>
                 <strong className="grow">{r.name}</strong>

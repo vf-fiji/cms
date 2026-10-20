@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 import { Icon } from "../lib/icons";
 import { useAuth, bus } from "../lib/auth";
 import { keyify, timeAgo, formatDate } from "../lib/format";
-import { Button, confirmDialog, Drawer, Empty, ErrorState, Field, Menu, promptDialog, SkeletonRows, Spinner, Switch, toast, useLoad } from "../components/ui";
+import { Button, confirmDialog, Drawer, Empty, ErrorState, Field, Menu, promptDialog, SkeletonRows, Spinner, Switch, toast, useLoad, pressRow } from "../components/ui";
 
 const FORM_FIELD_TYPES: { type: FormField["type"]; label: string; icon: string }[] = [
   { type: "text", label: "Short answer", icon: "Type" },
@@ -64,12 +64,12 @@ export function Forms() {
                 <th>Fields</th>
                 <th>Responses</th>
                 <th>Updated</th>
-                <th />
+                <th><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
               {data.map((f) => (
-                <tr key={f.id} className="clickable" onClick={() => nav(`/forms/${f.id}`)}>
+                <tr key={f.id} className="clickable" {...pressRow(() => nav(`/forms/${f.id}`))}>
                   <td>
                     <div className="row" style={{ gap: 12 }}>
                       <span className="list-icon" style={{ background: "var(--accent-soft)", color: "var(--accent-text)" }}><Icon name="ClipboardList" size={15} /></span>
@@ -170,10 +170,10 @@ export function FormBuilder() {
           )}
         </div>
       </div>
-      <div className="underline-tabs" style={{ marginBottom: 20 }}>
-        {can("forms.manage") && <button className={`underline-tab ${tab === "build" ? "active" : ""}`} onClick={() => setTab("build")}><Icon name="SquarePen" size={14} /> Build</button>}
-        {can("forms.submissions") && <button className={`underline-tab ${tab === "responses" ? "active" : ""}`} onClick={() => setTab("responses")}><Icon name="Inbox" size={14} /> Responses <span className="badge no-dot">{form.submissionCount}</span></button>}
-        {can("forms.manage") && <button className={`underline-tab ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}><Icon name="Settings" size={14} /> Settings</button>}
+      <div className="underline-tabs" role="tablist" style={{ marginBottom: 20 }}>
+        {can("forms.manage") && <button role="tab" aria-selected={tab === "build"} className={`underline-tab ${tab === "build" ? "active" : ""}`} onClick={() => setTab("build")}><Icon name="SquarePen" size={14} /> Build</button>}
+        {can("forms.submissions") && <button role="tab" aria-selected={tab === "responses"} className={`underline-tab ${tab === "responses" ? "active" : ""}`} onClick={() => setTab("responses")}><Icon name="Inbox" size={14} /> Responses <span className="badge no-dot">{form.submissionCount}</span></button>}
+        {can("forms.manage") && <button role="tab" aria-selected={tab === "settings"} className={`underline-tab ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}><Icon name="Settings" size={14} /> Settings</button>}
       </div>
 
       {tab === "build" && (
@@ -197,6 +197,26 @@ export function FormBuilder() {
                   className={`field-row ${selected === i ? "active" : ""}`}
                   style={{ gridColumn: f.width === "half" ? "span 1" : "1 / -1", flexDirection: "column", alignItems: "stretch", gap: 6, opacity: dragIdx === i ? 0.4 : 1 }}
                   onClick={() => setSelected(i)}
+                  tabIndex={0}
+                  role="button"
+                  aria-pressed={selected === i}
+                  aria-label={`${f.label || ft(f.type).label}, ${ft(f.type).label} field. Enter to edit, Alt+Up or Alt+Down to move.`}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelected(i);
+                    } else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+                      e.preventDefault();
+                      const to = e.key === "ArrowUp" ? i - 1 : i + 1;
+                      if (to < 0 || to >= form.fields.length) return;
+                      const next = [...form.fields];
+                      [next[i], next[to]] = [next[to], next[i]];
+                      set({ fields: next });
+                      setSelected(to);
+                      requestAnimationFrame(() => (document.querySelectorAll<HTMLElement>(".field-row")[to])?.focus());
+                    }
+                  }}
                   draggable
                   onDragStart={() => setDragIdx(i)}
                   onDragOver={(e) => e.preventDefault()}
@@ -215,7 +235,9 @@ export function FormBuilder() {
                     <strong className="grow" style={{ fontSize: 13 }}>{f.label}{f.required && <span style={{ color: "var(--danger)" }}> *</span>}</strong>
                     <span className="subtle" style={{ fontSize: 11.5 }}>{ft(f.type).label}</span>
                   </div>
-                  <FieldPreview f={f} />
+                  <div inert aria-hidden="true">
+                    <FieldPreview f={f} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -373,7 +395,7 @@ function Responses({ form }: { form: FormDef }) {
               </thead>
               <tbody>
                 {data.map((r) => (
-                  <tr key={r.id} className="clickable" onClick={() => (setOpen(r), !r.isRead && markRead(r))}>
+                  <tr key={r.id} className="clickable" {...pressRow(() => (setOpen(r), !r.isRead && markRead(r)))}>
                     <td>{!r.isRead && <span className="dot" style={{ background: "var(--accent)", display: "inline-block" }} title="Unread" />}</td>
                     {cols.map((c) => (
                       <td key={c.key} className="truncate" style={{ maxWidth: 240, fontWeight: r.isRead ? 400 : 650 }}>

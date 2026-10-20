@@ -7,7 +7,7 @@ import { Icon } from "../lib/icons";
 import { useAuth } from "../lib/auth";
 import { timeAgo, slugify } from "../lib/format";
 import * as L from "../lib/layout";
-import { Button, confirmDialog, Drawer, Field, Menu, Spinner, StatusBadge, Switch, toast, ErrorState, useProChrome } from "../components/ui";
+import { Button, confirmDialog, Drawer, Field, Menu, Spinner, StatusBadge, Switch, toast, ErrorState, useProChrome, press } from "../components/ui";
 import { FieldsForm, ImageField } from "../components/FieldEditor";
 import { CodeEditor } from "../components/CodeEditor";
 
@@ -42,6 +42,20 @@ const docOf = (p: Page): Doc => ({
   publishAt: p.publishAt,
 });
 
+const PHONE_QUERY = "(max-width: 760px)";
+const isPhone = () => window.matchMedia?.(PHONE_QUERY).matches ?? false;
+function usePhone() {
+  const [phone, setPhone] = useState(isPhone);
+  useEffect(() => {
+    const m = window.matchMedia?.(PHONE_QUERY);
+    if (!m) return;
+    const on = () => setPhone(m.matches);
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, []);
+  return phone;
+}
+
 export function PageEditor() {
   useProChrome();
   const { id } = useParams();
@@ -55,8 +69,20 @@ export function PageEditor() {
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [device, setDevice] = useState<Device>("desktop");
   const [leftTab, setLeftTab] = useState<"add" | "outline">("add");
-  const [showLeft, setShowLeft] = useState(true);
-  const [showRight, setShowRight] = useState(true);
+  const phone = usePhone();
+  const [showLeft, setShowLeft] = useState(() => !isPhone());
+  const [showRight, setShowRight] = useState(() => !isPhone());
+  // phone: leaving or entering phone width resets the panels; picking a block opens its properties
+  useEffect(() => {
+    setShowLeft(!phone);
+    setShowRight(!phone);
+  }, [phone]);
+  useEffect(() => {
+    if (phone && selected) {
+      setShowLeft(false);
+      setShowRight(true);
+    }
+  }, [phone, selected]);
   const [settingsOpen, setSettingsOpen] = useState<null | "general" | "seo" | "code" | "history">(null);
   const [customWidgets, setCustomWidgets] = useState<CustomWidget[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -426,11 +452,30 @@ export function PageEditor() {
   if (!doc || !page) return <Spinner label="Opening page editor…" />;
 
   const selLoc = L.locate(doc.layout, selected);
+  // on a phone the panels are bottom sheets: one at a time, closed after adding a widget
+  const openSheet = (which: "add" | "outline" | "edit") => {
+    if (which === "edit") {
+      setShowLeft(false);
+      setShowRight((v) => !v);
+    } else {
+      setShowRight(false);
+      setShowLeft((v) => !(v && leftTab === which));
+      setLeftTab(which);
+    }
+  };
+  const addWidget = (type: string) => {
+    ops.add(type);
+    if (phone) setShowLeft(false);
+  };
+  const addSection = (w: number[]) => {
+    ops.addSection(w);
+    if (phone) setShowLeft(false);
+  };
   const hasChanges = page.hasUnpublishedChanges || saveState !== "saved";
   const isLive = !!page.publishedAt;
 
   return (
-    <div className={`editor ${showLeft ? "" : "hide-left"} ${showRight ? "" : "hide-right"}`}>
+    <div className={`editor ${showLeft ? "" : "hide-left"} ${showRight ? "" : "hide-right"}${phone ? " is-phone" : ""}`}>
       {/* ---------- top bar ---------- */}
       <header className="editor-top">
         <Button variant="ghost" iconOnly icon="ArrowLeft" onClick={back} aria-label="Back to pages" title="Back to pages" />
@@ -438,8 +483,8 @@ export function PageEditor() {
           <strong className="truncate" style={{ maxWidth: 260 }}>{doc.title}</strong>
           <span className="mono truncate">{page.path}</span>
         </div>
-        <StatusBadge status={page.status} dirty={page.hasUnpublishedChanges} />
-        <span className="save-state" aria-live="polite">
+        <span className="hide-phone"><StatusBadge status={page.status} dirty={page.hasUnpublishedChanges} /></span>
+        <span className="save-state hide-phone" aria-live="polite">
           {saveState === "saving" && (
             <>
               <Icon name="LoaderCircle" size={13} className="spin" /> Saving…
@@ -459,7 +504,7 @@ export function PageEditor() {
           <Button size="sm" iconOnly icon="Undo2" onClick={undo} disabled={!history.current.past.length} title="Undo (Ctrl+Z)" aria-label="Undo" />
           <Button size="sm" iconOnly icon="Redo2" onClick={redo} disabled={!history.current.future.length} title="Redo (Ctrl+Y)" aria-label="Redo" />
         </div>
-        <div className="tabs" role="group" aria-label="Preview size">
+        <div className="tabs hide-phone" role="group" aria-label="Preview size">
           {(
             [
               ["desktop", "Monitor"],
@@ -472,15 +517,19 @@ export function PageEditor() {
             </button>
           ))}
         </div>
-        <div className="spacer" />
-        <Button size="sm" variant="ghost" iconOnly icon="PanelLeft" onClick={() => setShowLeft((v) => !v)} title="Toggle left panel" aria-label="Toggle left panel" />
-        <Button size="sm" variant="ghost" iconOnly icon="PanelRight" onClick={() => setShowRight((v) => !v)} title="Toggle right panel" aria-label="Toggle right panel" />
-        <Button size="sm" icon="History" onClick={() => setSettingsOpen("history")}>History</Button>
-        <Button size="sm" icon="Settings" onClick={() => setSettingsOpen("general")}>Settings</Button>
-        <Button size="sm" icon="Eye" onClick={preview}>Preview</Button>
+        <div className="spacer hide-phone" />
+        <Button className="hide-phone" size="sm" variant="ghost" iconOnly icon="PanelLeft" onClick={() => setShowLeft((v) => !v)} title="Toggle left panel" aria-label="Toggle left panel" />
+        <Button className="hide-phone" size="sm" variant="ghost" iconOnly icon="PanelRight" onClick={() => setShowRight((v) => !v)} title="Toggle right panel" aria-label="Toggle right panel" />
+        <Button className="hide-phone" size="sm" icon="History" onClick={() => setSettingsOpen("history")}>History</Button>
+        {phone ? (
+          <Button size="sm" iconOnly icon="Settings" onClick={() => setSettingsOpen("general")} aria-label="Page settings" title="Page settings" />
+        ) : (
+          <Button size="sm" icon="Settings" onClick={() => setSettingsOpen("general")}>Settings</Button>
+        )}
+        <Button className="hide-phone" size="sm" icon="Eye" onClick={preview}>Preview</Button>
         <div className="btn-group">
           <Button size="sm" variant="primary" icon={can("pages.publish") ? "Send" : "Eye"} loading={publishing} onClick={publish} disabled={!hasChanges && isLive && page.status === "published"}>
-            {can("pages.publish") ? (isLive ? (hasChanges ? "Publish changes" : "Published") : "Publish") : "Submit for review"}
+            {can("pages.publish") ? (isLive ? (hasChanges ? (phone ? "Publish" : "Publish changes") : "Published") : "Publish") : phone ? "Submit" : "Submit for review"}
           </Button>
           <Menu
             trigger={(open) => <Button size="sm" variant="primary" iconOnly icon="ChevronDown" onClick={open} aria-label="More publishing options" style={{ borderLeft: "1px solid rgb(255 255 255 / .25)" }} />}
@@ -496,7 +545,7 @@ export function PageEditor() {
       </header>
 
       {/* ---------- left: add / outline ---------- */}
-      <aside className="editor-left">
+      <aside className={`editor-left${showLeft ? " open" : ""}`} aria-label="Widgets and layers">
         {showLeft && (
           <>
             <div className="panel-tabs">
@@ -508,7 +557,7 @@ export function PageEditor() {
               </button>
             </div>
             <div className="panel-scroll">
-              {leftTab === "add" ? <AddPanel customWidgets={customWidgets} onAdd={ops.add} onAddSection={ops.addSection} /> : <Outline layout={doc.layout} names={widgetNames} selected={selected} onSelect={setSelected} onMove={ops.move} />}
+              {leftTab === "add" ? <AddPanel customWidgets={customWidgets} onAdd={addWidget} onAddSection={addSection} /> : <Outline layout={doc.layout} names={widgetNames} selected={selected} onSelect={setSelected} onMove={ops.move} />}
             </div>
           </>
         )}
@@ -520,7 +569,7 @@ export function PageEditor() {
       </div>
 
       {/* ---------- right: inspector ---------- */}
-      <aside className="editor-right">
+      <aside className={`editor-right${showRight ? " open" : ""}`} aria-label="Properties">
         {showRight && (
           <Inspector
             doc={doc}
@@ -536,6 +585,23 @@ export function PageEditor() {
           />
         )}
       </aside>
+
+      {phone && (
+        <nav className="editor-phone-bar" aria-label="Editor panels">
+          <button className={showLeft && leftTab === "add" ? "active" : ""} aria-pressed={showLeft && leftTab === "add"} onClick={() => openSheet("add")}>
+            <Icon name="Plus" size={19} /> Add
+          </button>
+          <button className={showLeft && leftTab === "outline" ? "active" : ""} aria-pressed={showLeft && leftTab === "outline"} onClick={() => openSheet("outline")}>
+            <Icon name="Layers" size={19} /> Outline
+          </button>
+          <button className={showRight ? "active" : ""} aria-pressed={showRight} onClick={() => openSheet("edit")}>
+            <Icon name="SquarePen" size={19} /> {selected ? "Edit block" : "Page"}
+          </button>
+          <button onClick={preview}>
+            <Icon name="Eye" size={19} /> Preview
+          </button>
+        </nav>
+      )}
 
       {settingsOpen && (
         <PageSettings
@@ -648,7 +714,7 @@ function Outline({ layout, names, selected, onSelect, onMove }: { layout: PageLa
     <div>
       {layout.sections.map((s, si) => (
         <div key={s.id}>
-          <div className={`outline-node ${selected === s.id ? "active" : ""}`} onClick={() => onSelect(s.id)}>
+          <div className={`outline-node ${selected === s.id ? "active" : ""}`} {...press(() => onSelect(s.id))}>
             <Icon name="Rows3" size={14} />
             <span className="grow">Section {si + 1}</span>
             <span className="col-widths" style={{ width: 54 }}>
@@ -661,13 +727,13 @@ function Outline({ layout, names, selected, onSelect, onMove }: { layout: PageLa
             {s.columns.map((c, ci) => (
               <div key={c.id}>
                 {s.columns.length > 1 && (
-                  <div className={`outline-node ${selected === c.id ? "active" : ""}`} onClick={() => onSelect(c.id)} style={{ height: 26, fontSize: 12 }}>
+                  <div className={`outline-node ${selected === c.id ? "active" : ""}`} {...press(() => onSelect(c.id))} style={{ height: 26, fontSize: 12 }}>
                     <Icon name="Columns2" size={13} /> Column {ci + 1} <span className="subtle">({c.width}/12)</span>
                   </div>
                 )}
                 <div className={s.columns.length > 1 ? "outline-children" : ""}>
                   {c.widgets.map((w) => (
-                    <div key={w.id} className={`outline-node ${selected === w.id ? "active" : ""}`} onClick={() => onSelect(w.id)}>
+                    <div key={w.id} className={`outline-node ${selected === w.id ? "active" : ""}`} {...press(() => onSelect(w.id))}>
                       <Icon name={getWidgetDef(w.type)?.icon ?? "Puzzle"} size={14} />
                       <span style={{ fontWeight: 560 }}>{names[w.type] ?? w.type}</span>
                       <span className="subtle truncate grow" style={{ fontSize: 12 }}>
@@ -799,7 +865,7 @@ function Inspector({
                   {COLUMN_LAYOUTS.map((l) => {
                     const active = l.widths.join() === section.columns.map((c) => c.width).join();
                     return (
-                      <div key={l.label} className="layout-item" style={{ cursor: "pointer", ...(active ? { borderColor: "#e60000", boxShadow: "0 0 0 2px rgb(230 0 0 / .3)" } : {}) }} title={l.label} onClick={() => onLayout(L.replaceSection(doc.layout, L.setSectionColumns(section, l.widths)))}>
+                      <div key={l.label} className="layout-item" style={{ cursor: "pointer", ...(active ? { borderColor: "#e60000", boxShadow: "0 0 0 2px rgb(230 0 0 / .3)" } : {}) }} title={l.label} {...press(() => onLayout(L.replaceSection(doc.layout, L.setSectionColumns(section, l.widths))))}>
                         {l.widths.map((w, i) => (
                           <span key={i} style={{ flex: w }} />
                         ))}
@@ -924,7 +990,7 @@ function PageSettings({
   };
   return (
     <Drawer title="Page settings" onClose={onClose} width={tab === "code" ? 760 : 560}>
-      <div className="underline-tabs" style={{ marginBottom: 20 }}>
+      <div className="underline-tabs" role="tablist" style={{ marginBottom: 20 }}>
         {(
           [
             ["general", "General", "Settings"],
@@ -933,7 +999,7 @@ function PageSettings({
             ["history", "History", "History"],
           ] as const
         ).map(([k, l, ic]) => (
-          <button key={k} className={`underline-tab ${tab === k ? "active" : ""}`} onClick={() => setTab(k)}>
+          <button key={k} role="tab" aria-selected={tab === k} className={`underline-tab ${tab === k ? "active" : ""}`} onClick={() => setTab(k)}>
             <Icon name={ic} size={14} /> {l}
           </button>
         ))}

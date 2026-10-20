@@ -43,7 +43,7 @@ export function Settings() {
         </div>
         {tab !== "redirects" && tab !== "system" && <Button variant="primary" icon="Save" loading={busy} disabled={!dirty} onClick={save}>Save settings</Button>}
       </div>
-      <div className="underline-tabs" style={{ marginBottom: 20 }}>
+      <div className="underline-tabs" role="tablist" style={{ marginBottom: 20 }}>
         {(
           [
             ["general", "General", "Settings"],
@@ -54,7 +54,7 @@ export function Settings() {
             ["system", "System health", "Activity"],
           ] as const
         ).map(([k, l, ic]) => (
-          <button key={k} className={`underline-tab ${tab === k ? "active" : ""}`} onClick={() => setTab(k)}>
+          <button key={k} role="tab" aria-selected={tab === k} className={`underline-tab ${tab === k ? "active" : ""}`} onClick={() => setTab(k)}>
             <Icon name={ic} size={14} /> {l}
           </button>
         ))}
@@ -83,7 +83,7 @@ export function Settings() {
               {(["primaryColor", "accentColor"] as const).map((k) => (
                 <Field key={k} label={k === "primaryColor" ? "Primary" : "Accent"} help={k === "primaryColor" ? "Buttons, links and highlights." : "Gradients and secondary highlights."}>
                   <div className="color-input">
-                    <input type="color" value={s[k]} onChange={(e) => set({ [k]: e.target.value })} aria-label={k} />
+                    <input type="color" value={s[k]} onChange={(e) => set({ [k]: e.target.value })} aria-label="Colour picker" />
                     <input className="input mono" value={s[k]} onChange={(e) => set({ [k]: e.target.value })} />
                   </div>
                 </Field>
@@ -378,7 +378,7 @@ function Redirects() {
         <Empty icon="ArrowRight" title="No redirects">Add one when you move or rename a page, so old links keep working.</Empty>
       ) : (
         <table className="table">
-          <thead><tr><th>From</th><th>To</th><th>Type</th><th>Hits</th><th /></tr></thead>
+          <thead><tr><th>From</th><th>To</th><th>Type</th><th>Hits</th><th><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>
             {data.map((r) => (
               <tr key={r.id}>

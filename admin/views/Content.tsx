@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import type { ContentItem, ContentType } from "../../shared/types";
 import { api } from "../lib/api";
 import { Icon } from "../lib/icons";
 import { useAuth, bus } from "../lib/auth";
 import { timeAgo } from "../lib/format";
-import { Button, confirmDialog, Empty, ErrorState, Menu, SkeletonRows, StatusBadge, toast, useLoad } from "../components/ui";
+import { Button, confirmDialog, Empty, ErrorState, Menu, SkeletonRows, StatusBadge, toast, useLoad, press } from "../components/ui";
 
 export function ContentHome() {
   const nav = useNavigate();
@@ -44,7 +44,7 @@ export function ContentHome() {
                 )}
               </div>
               <div>
-                <div style={{ fontWeight: 650, fontSize: 15.5 }}>{t.name}</div>
+                <Link to={`/content/${t.key}`} className="stretched-link" style={{ fontWeight: 650, fontSize: 15.5, color: "inherit" }} onClick={(e) => e.stopPropagation()}>{t.name}</Link>
                 <div className="muted" style={{ fontSize: 13 }}>{t.description || `${t.fields.length} fields`}</div>
               </div>
               <div className="row subtle" style={{ fontSize: 12.5 }}>
@@ -63,7 +63,7 @@ export function ContentHome() {
             </div>
           ))}
           {can("content.types") && (
-            <div className="card type-card" style={{ borderStyle: "dashed", justifyContent: "center", alignItems: "center", textAlign: "center", minHeight: 160, boxShadow: "none" }} onClick={() => nav("/types/new")}>
+            <div className="card type-card" style={{ borderStyle: "dashed", justifyContent: "center", alignItems: "center", textAlign: "center", minHeight: 160, boxShadow: "none" }} {...press(() => nav("/types/new"))}>
               <span className="empty-icon" style={{ margin: 0 }}>
                 <Icon name="Plus" size={22} />
               </span>
@@ -221,7 +221,7 @@ export function ContentList() {
                   <th>Status</th>
                   <th>Tags</th>
                   <th>Updated</th>
-                  <th />
+                  <th><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>

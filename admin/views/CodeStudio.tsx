@@ -6,7 +6,7 @@ import { Icon, PICKER_ICONS } from "../lib/icons";
 import { useAuth } from "../lib/auth";
 import { formatDate, timeAgo } from "../lib/format";
 import { CodeEditor, type CodeLang } from "../components/CodeEditor";
-import { Button, confirmDialog, Field, Modal, Switch, toast, useHotkey, useProChrome } from "../components/ui";
+import { Button, confirmDialog, Field, Modal, Switch, toast, useHotkey, useProChrome, press, pressRow } from "../components/ui";
 
 type Kind = "template" | "asset" | "widget" | "function";
 type AnyFile = Template | CodeAsset | CustomWidget | ServerFunction;
@@ -166,9 +166,11 @@ export function CodeStudio() {
 
   const group = (id: string, label: string, onAdd: (() => void) | null, children: React.ReactNode) => (
     <div>
-      <div className="studio-group" onClick={() => setCollapsed((c) => (c.has(id) ? c.delete(id) : c.add(id), new Set(c)))}>
-        <Icon name={collapsed.has(id) ? "ChevronRight" : "ChevronDown"} size={13} />
-        <span className="grow">{label}</span>
+      <div className="studio-group">
+        <button className="studio-group-toggle" aria-expanded={!collapsed.has(id)} onClick={() => setCollapsed((c) => (c.has(id) ? c.delete(id) : c.add(id), new Set(c)))}>
+          <Icon name={collapsed.has(id) ? "ChevronRight" : "ChevronDown"} size={13} />
+          <span className="grow">{label}</span>
+        </button>
         {onAdd && (
           <button
             onClick={(e) => {
@@ -190,7 +192,7 @@ export function CodeStudio() {
     const k = refKey(r);
     const [label, color] = EXT[ext] ?? ["·", "#999"];
     return (
-      <div key={k} className={`studio-file ${active === k ? "active" : ""}`} onClick={() => openFile(r)} title={name}>
+      <div key={k} className={`studio-file ${active === k ? "active" : ""}`} {...press(() => openFile(r))} title={name}>
         <span className="ext" style={{ color }}>{label}</span>
         <span className="truncate">{name}</span>
         {extra}
@@ -201,7 +203,7 @@ export function CodeStudio() {
 
   return (
     <div className="studio">
-      <div className="studio-rail">
+      <nav className="studio-rail" aria-label="Code Studio">
         <button title="Back to admin" aria-label="Back to admin" onClick={() => nav("/")}>
           <Icon name="ArrowLeft" size={19} />
         </button>
@@ -219,9 +221,9 @@ export function CodeStudio() {
         <button title="View site" aria-label="View site" onClick={() => window.open("/", "_blank")}>
           <Icon name="Globe" size={19} />
         </button>
-      </div>
+      </nav>
 
-      <div className="studio-side">
+      <aside className="studio-side" aria-label="Files">
         {panel === "files" && (
           <>
             <div className="studio-side-head">
@@ -231,10 +233,10 @@ export function CodeStudio() {
               </button>
             </div>
             <div className="studio-tree">
-              {group("tpl", "Templates", can("templates.edit") ? () => setCreating("template") : null, templates.map((t) => fileRow({ kind: "template", id: t.id }, t.name, "liquid", t.isDefault ? <span style={{ fontSize: 10, color: "#888", marginLeft: 4 }}>default</span> : null)))}
+              {group("tpl", "Templates", can("templates.edit") ? () => setCreating("template") : null, templates.map((t) => fileRow({ kind: "template", id: t.id }, t.name, "liquid", t.isDefault ? <span style={{ fontSize: 10, color: "#a8a8a8", marginLeft: 4 }}>default</span> : null)))}
               {can("code.edit") && (
                 <>
-                  {group("assets", "Site code", () => setCreating("asset"), assets.map((a) => fileRow({ kind: "asset", id: a.id }, a.name, a.kind, !a.enabled ? <span style={{ fontSize: 10, color: "#888", marginLeft: 4 }}>off</span> : null)))}
+                  {group("assets", "Site code", () => setCreating("asset"), assets.map((a) => fileRow({ kind: "asset", id: a.id }, a.name, a.kind, !a.enabled ? <span style={{ fontSize: 10, color: "#a8a8a8", marginLeft: 4 }}>off</span> : null)))}
                   {group("widgets", "Widgets", () => setCreating("widget"), widgets.map((w) => fileRow({ kind: "widget", id: w.id }, w.name, w.renderer === "react" ? "react" : "liquid")))}
                   {group("fns", "Server functions", () => setCreating("function"), functions.map((f) => fileRow({ kind: "function", id: f.id }, f.name, f.kind, <span className="dot" style={{ marginLeft: "auto", background: !f.enabled ? "#555" : f.lastStatus === "error" ? "#f48771" : "#89d185" }} title={!f.enabled ? "Disabled" : f.lastStatus ?? "Not run yet"} />)))}
                 </>
@@ -244,9 +246,9 @@ export function CodeStudio() {
         )}
         {panel === "kv" && <KvPanel />}
         {panel === "help" && <HelpPanel />}
-      </div>
+      </aside>
 
-      <div className="studio-main">
+      <main className="studio-main">
         <div className="studio-tabs">
           {open.map((r) => {
             const k = refKey(r);
@@ -254,14 +256,12 @@ export function CodeStudio() {
             if (!f) return null;
             return (
               <div key={k} className={`studio-tab ${active === k ? "active" : ""}`} onClick={() => setActive(k)}>
-                <span>{f.name}</span>
-                {isDirty(k) ? (
-                  <span className="unsaved" onClick={(e) => (e.stopPropagation(), close(k))} />
-                ) : (
-                  <button onClick={(e) => (e.stopPropagation(), close(k))} aria-label="Close tab">
-                    <Icon name="X" size={13} />
-                  </button>
-                )}
+                <button className="studio-tab-label" aria-current={active === k ? "true" : undefined} onClick={(e) => (e.stopPropagation(), setActive(k))}>
+                  {f.name}
+                </button>
+                <button onClick={(e) => (e.stopPropagation(), close(k))} aria-label={isDirty(k) ? `Close ${f.name} (unsaved changes)` : `Close ${f.name}`} title={isDirty(k) ? "Unsaved changes" : "Close"}>
+                  {isDirty(k) ? <span className="unsaved" /> : <Icon name="X" size={13} />}
+                </button>
               </div>
             );
           })}
@@ -296,7 +296,7 @@ export function CodeStudio() {
           <span>Ctrl+S save</span>
           <span>UTF-8</span>
         </div>
-      </div>
+      </main>
 
       {creating && <CreateDialog kind={creating} hookEvents={hookEvents} onClose={() => setCreating(null)} onCreate={(extra) => create(creating, extra)} />}
     </div>
@@ -403,7 +403,7 @@ function FileEditor({
           </div>
         )}
         {!history && (
-          <aside className="studio-props">
+          <aside className="studio-props" aria-label="Settings">
             <Props kind={kind} f={f} onEdit={onEdit} onDelete={onDelete} hookEvents={hookEvents} />
           </aside>
         )}
@@ -763,7 +763,7 @@ function SideBySideDiff({ before, after, beforeLabel, afterLabel }: { before: st
       <tbody>
         {visible.map((r, i) =>
           r.kind === "fold" ? (
-            <tr key={`f${r.from}`} className="fold" onClick={() => setExpanded((s) => new Set(s).add(r.from))}>
+            <tr key={`f${r.from}`} className="fold" {...pressRow(() => setExpanded((s) => new Set(s).add(r.from)))}>
               <td colSpan={4}>⋯ {r.count} unchanged lines</td>
             </tr>
           ) : (
@@ -831,7 +831,7 @@ function FunctionWorkbench({ fn, value, onChange, onSave, onReload }: { fn: Serv
             {consoleTab === "output" ? (
               <>
                 <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
-                  <div style={{ color: "#888", marginBottom: 4 }}>Test input (JSON) — runs your unsaved code</div>
+                  <div style={{ color: "#a8a8a8", marginBottom: 4 }}>Test input (JSON) — runs your unsaved code</div>
                   <textarea value={input} onChange={(e) => setInput(e.target.value)} spellCheck={false} style={{ flex: 1, minHeight: 120, background: "#1e1e1e", color: "#d4d4d4", border: "1px solid #333", borderRadius: 6, padding: 8, font: "inherit", resize: "none" }} />
                 </div>
                 <div>
@@ -938,13 +938,13 @@ function KvPanel() {
         <button title="Refresh" aria-label="Refresh" onClick={load}><Icon name="RotateCcw" size={14} /></button>
       </div>
       <div className="studio-tree" style={{ padding: "0 12px" }}>
-        <div style={{ color: "#888", fontSize: 12, marginBottom: 10 }}>Data saved by functions with cms.kv.set().</div>
+        <div style={{ color: "#a8a8a8", fontSize: 12, marginBottom: 10 }}>Data saved by functions with cms.kv.set().</div>
         {!rows?.length && <div style={{ color: "#777" }}>Empty.</div>}
         {rows?.map((r) => (
           <div key={r.key} style={{ marginBottom: 10, borderBottom: "1px solid #2b2b2b", paddingBottom: 8 }}>
             <div className="row">
               <strong className="grow mono truncate" style={{ color: "#9cdcfe", fontSize: 12 }}>{r.key}</strong>
-              <button style={{ background: "none", border: 0, color: "#888", cursor: "pointer" }} aria-label="Delete key" onClick={() => api.del(`/kv/${encodeURIComponent(r.key)}`).then(load)}><Icon name="Trash2" size={13} /></button>
+              <button style={{ background: "none", border: 0, color: "#a8a8a8", cursor: "pointer" }} aria-label="Delete key" onClick={() => api.del(`/kv/${encodeURIComponent(r.key)}`).then(load)}><Icon name="Trash2" size={13} /></button>
             </div>
             <pre className="mono" style={{ margin: "4px 0 0", fontSize: 11.5, color: "#ce9178", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{JSON.stringify(r.value, null, 1).slice(0, 400)}</pre>
           </div>

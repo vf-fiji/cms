@@ -35,12 +35,16 @@ interface Props {
   readOnly?: boolean;
   className?: string;
   basicSetup?: ReactCodeMirrorProps["basicSetup"];
+  /** accessible name for screen readers (defaults to the language) */
+  label?: string;
 }
 
-export function CodeEditor({ value, onChange, language, height, minHeight = "120px", dark, onSave, readOnly, className, basicSetup }: Props) {
+export function CodeEditor({ value, onChange, language, height, minHeight = "120px", dark, onSave, readOnly, className, basicSetup, label }: Props) {
   const { theme } = useTheme();
   const extensions = useMemo(() => {
-    const ext = [langExt(language), EditorView.lineWrapping];
+    const name = label ?? `${language === "javascript" ? "JavaScript" : language === "jsx" ? "JSX" : language.toUpperCase()} code`;
+    // Esc then Tab leaves the editor (CodeMirror's built-in escape from Tab indenting)
+    const ext = [langExt(language), EditorView.lineWrapping, EditorView.contentAttributes.of({ "aria-label": name })];
     if (onSave)
       ext.push(
         keymap.of([
@@ -55,7 +59,7 @@ export function CodeEditor({ value, onChange, language, height, minHeight = "120
         ]),
       );
     return ext;
-  }, [language, onSave]);
+  }, [language, onSave, label]);
   return (
     <CodeMirror
       className={className}
@@ -72,10 +76,10 @@ export function CodeEditor({ value, onChange, language, height, minHeight = "120
 }
 
 /** Compact code input for inspectors and forms. */
-export function CodeField({ value, onChange, language, minHeight = "90px" }: { value: string; onChange: (v: string) => void; language: CodeLang; minHeight?: string }) {
+export function CodeField({ value, onChange, language, minHeight = "90px", label }: { value: string; onChange: (v: string) => void; language: CodeLang; minHeight?: string; label?: string }) {
   return (
     <div className="code-field">
-      <CodeEditor value={value ?? ""} onChange={onChange} language={language} minHeight={minHeight} basicSetup={{ lineNumbers: false, foldGutter: false, highlightActiveLine: false, tabSize: 2 }} />
+      <CodeEditor value={value ?? ""} onChange={onChange} language={language} minHeight={minHeight} label={label} basicSetup={{ lineNumbers: false, foldGutter: false, highlightActiveLine: false, tabSize: 2 }} />
     </div>
   );
 }

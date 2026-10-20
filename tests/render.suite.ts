@@ -41,6 +41,19 @@ describe("built-in widgets", () => {
     assert.doesNotMatch(html, /javascript:alert/);
   });
 
+  it("nests card and list titles under the heading before them, for a valid outline", async () => {
+    const list = makeWidget("contentList", { contentType: "news", limit: 2, showImage: true, layout: "grid" });
+    const card = makeWidget("card", { title: "Card", text: "x" });
+    const underH1 = await renderLayout({ sections: [makeSection([12], [[makeWidget("hero", { title: "Top" }), list, card]])] }, newCtx("/", false));
+    assert.match(underH1, /<h1[\s>]/);
+    assert.match(underH1, /rf-content-body"><time>[^<]*<\/time><h2>|rf-content-body"><h2>/);
+    assert.match(underH1, /<h2>Card<\/h2>/, "a later card follows the outline too, not the list's own titles");
+    const underH2 = await renderLayout({ sections: [makeSection([12], [[makeWidget("heading", { text: "Latest", level: "h2" }), list]])] }, newCtx("/", false));
+    assert.match(underH2, /rf-content-body">(?:<time>[^<]*<\/time>)?<h3>/);
+    // the image link repeats the title link, so it's hidden from keyboards and screen readers
+    if (underH1.includes("rf-content-img")) assert.match(underH1, /class="rf-content-img" href="[^"]+" tabindex="-1" aria-hidden="true"/);
+  });
+
   it("applies section and widget layout options", async () => {
     const ctx = newCtx("/", false);
     const s = makeSection([4, 8], [[makeWidget("spacer", { height: 10, _visibility: "mobile", _anchor: "gap" })], []]);

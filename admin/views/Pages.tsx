@@ -5,7 +5,7 @@ import { api, ApiError } from "../lib/api";
 import { Icon } from "../lib/icons";
 import { useAuth } from "../lib/auth";
 import { timeAgo, slugify } from "../lib/format";
-import { Button, confirmDialog, Empty, ErrorState, Field, Menu, Modal, SkeletonRows, StatusBadge, Switch, toast, useLoad } from "../components/ui";
+import { Button, confirmDialog, Empty, ErrorState, Field, Menu, Modal, SkeletonRows, StatusBadge, Switch, toast, useLoad, press } from "../components/ui";
 
 type PageRow = Omit<Page, "layout" | "customCss" | "customJs" | "customHead"> & { widgetCount: number };
 
@@ -222,7 +222,7 @@ export function Pages() {
               </span>
               <div className="grow" style={{ minWidth: 0 }}>
                 <div className="row" style={{ gap: 8 }}>
-                  <span className="tree-title truncate" onClick={() => nav(`/pages/${p.id}`)}>
+                  <span className="tree-title truncate" {...press(() => nav(`/pages/${p.id}`))}>
                     {p.title}
                   </span>
                   {!p.showInNav && <span className="badge no-dot" title="Hidden from navigation menus"><Icon name="EyeOff" size={11} /> Hidden</span>}

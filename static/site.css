@@ -145,7 +145,7 @@ p { margin: 0 0 1em; }
 .rf-bg-subtle .rf-card-flat { background: #fff; }
 .rf-card-img img { width: 100%; aspect-ratio: 16/10; object-fit: cover; }
 .rf-card-body { padding: 26px 28px 30px; display: flex; flex-direction: column; flex: 1; }
-.rf-card-body h3 { margin-bottom: 8px; }
+.rf-card-body :is(h2, h3, h4) { margin-bottom: 8px; font-size: 1.4rem; letter-spacing: -0.022em; line-height: 1.2; }
 .rf-card-body p { color: var(--rf-muted); }
 .rf-card-link { margin-top: auto; font-weight: 500; text-decoration: none; color: color-mix(in srgb, var(--rf-primary) 88%, #000); }
 .rf-card-link:hover { text-decoration: underline; }
@@ -161,7 +161,7 @@ p { margin: 0 0 1em; }
 .rf-feature-icon { width: 52px; height: 52px; display: grid; place-items: center; font-size: 24px; border-radius: 15px; margin-bottom: 20px; background: #fff; box-shadow: 0 2px 8px rgb(0 0 0 / .06); }
 .rf-bg-subtle .rf-feature-icon { background: var(--rf-subtle); box-shadow: none; }
 .rf-align-center .rf-feature-icon { margin-left: auto; margin-right: auto; }
-.rf-feature h3 { font-size: 1.25rem; }
+.rf-feature :is(h2, h3, h4) { font-size: 1.25rem; letter-spacing: -0.022em; line-height: 1.2; }
 .rf-feature p { color: var(--rf-muted); margin: 0; font-size: 16px; line-height: 1.5; }
 .rf-bg-dark .rf-feature { background: #1d1d1f; }
 .rf-bg-dark .rf-feature p { color: #a1a1a6; }
@@ -218,9 +218,9 @@ p { margin: 0 0 1em; }
 .rf-content-card:hover .rf-content-img img { transform: scale(1.04); }
 .rf-content-body { padding: 22px 24px 26px; }
 .rf-content-body time { display: block; font-size: 13px; font-weight: 600; color: var(--rf-muted); margin-bottom: 8px; }
-.rf-content-body h3 { margin-bottom: 8px; font-size: 1.25rem; }
-.rf-content-body h3 a { color: inherit; text-decoration: none; }
-.rf-content-body h3 a:hover { color: color-mix(in srgb, var(--rf-primary) 88%, #000); }
+.rf-content-body :is(h2, h3, h4) { margin-bottom: 8px; font-size: 1.25rem; letter-spacing: -0.022em; line-height: 1.2; }
+.rf-content-body :is(h2, h3, h4) a { color: inherit; text-decoration: none; }
+.rf-content-body :is(h2, h3, h4) a:hover { color: color-mix(in srgb, var(--rf-primary) 88%, #000); }
 .rf-content-body p { color: var(--rf-muted); font-size: 15.5px; margin: 0; }
 .rf-content-list { display: flex; flex-direction: column; gap: 16px; }
 .rf-content-list .rf-content-card { flex-direction: row; align-items: stretch; }

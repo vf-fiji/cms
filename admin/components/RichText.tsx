@@ -8,7 +8,7 @@ import { promptDialog } from "./ui";
 import { MediaPicker } from "./MediaPicker";
 import { CodeField } from "./CodeEditor";
 
-export function RichText({ value, onChange, placeholder, compact }: { value: string; onChange: (html: string) => void; placeholder?: string; compact?: boolean }) {
+export function RichText({ value, onChange, placeholder, compact, label }: { value: string; onChange: (html: string) => void; placeholder?: string; compact?: boolean; label?: string }) {
   const [source, setSource] = useState(false);
   const [picking, setPicking] = useState(false);
   const editor = useEditor({
@@ -20,6 +20,7 @@ export function RichText({ value, onChange, placeholder, compact }: { value: str
     content: value || "",
     onUpdate: ({ editor }) => onChange(editor.isEmpty ? "" : editor.getHTML()),
     immediatelyRender: true,
+    editorProps: { attributes: { role: "textbox", "aria-multiline": "true", "aria-label": label ?? "Rich text" } },
   });
 
   // keep in sync when the value changes from outside (e.g. inline edit on canvas, undo)

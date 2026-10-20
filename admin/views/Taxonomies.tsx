@@ -67,7 +67,7 @@ export function Taxonomies() {
                 <th>Name</th>
                 <th>Slug</th>
                 <th>Used by</th>
-                <th />
+                <th><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
