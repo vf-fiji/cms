@@ -45,6 +45,9 @@ export async function startServer(opts: StartOptions = {}): Promise<TestServer> 
       ...process.env,
       // Keep a developer's own mail settings out of the tests.
       SMTP_HOST: "",
+      REEF_ALERT_WEBHOOK: "",
+      REEF_BACKUP_AT: "",
+      REEF_BACKUP_AFTER: "",
       REEF_TRUST_PROXY: "",
       REEF_PUBLIC_URL: `http://127.0.0.1:${port}`,
       NODE_ENV: "production",

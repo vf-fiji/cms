@@ -7,7 +7,7 @@ import { Button, confirmDialog, Empty, Field, Spinner, Switch, toast, useLoad } 
 import { ImageField } from "../components/FieldEditor";
 import { CodeField } from "../components/CodeEditor";
 
-type Tab = "general" | "seo" | "redirects" | "tailwind" | "api";
+type Tab = "general" | "seo" | "redirects" | "tailwind" | "api" | "system";
 
 export function Settings() {
   const [tab, setTab] = useState<Tab>("general");
@@ -41,7 +41,7 @@ export function Settings() {
           <h1 className="page-title">Settings</h1>
           <div className="page-sub">Site identity, search engines, redirects and the developer API.</div>
         </div>
-        {tab !== "redirects" && <Button variant="primary" icon="Save" loading={busy} disabled={!dirty} onClick={save}>Save settings</Button>}
+        {tab !== "redirects" && tab !== "system" && <Button variant="primary" icon="Save" loading={busy} disabled={!dirty} onClick={save}>Save settings</Button>}
       </div>
       <div className="underline-tabs" style={{ marginBottom: 20 }}>
         {(
@@ -51,6 +51,7 @@ export function Settings() {
             ["redirects", "Redirects", "ArrowRight"],
             ["tailwind", "Tailwind CSS", "Wind"],
             ["api", "API & headless", "Braces"],
+            ["system", "System health", "Activity"],
           ] as const
         ).map(([k, l, ic]) => (
           <button key={k} className={`underline-tab ${tab === k ? "active" : ""}`} onClick={() => setTab(k)}>
@@ -136,6 +137,7 @@ export function Settings() {
       )}
 
       {tab === "redirects" && <Redirects />}
+      {tab === "system" && <SystemHealth />}
 
       {tab === "tailwind" && (
         <div className="col" style={{ gap: 16 }}>
@@ -224,6 +226,123 @@ export function NewsList({ items }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface Health {
+  errors: { time: string; level: "error" | "warn"; scope: string; message: string; stack?: string; meta?: Record<string, unknown> }[];
+  backup: { time: string; ok: boolean; dir?: string; stage?: string; error?: string; offsite?: string; databaseBytes?: number; uploads?: number; uploadBytes?: number } | null;
+  backupSchedule: string[];
+  offsiteConfigured: boolean;
+  alertsConfigured: boolean;
+  uptimeSeconds: number;
+  node: string;
+  memoryMb: number;
+}
+
+const ago = (iso: string) => {
+  const s = Math.round((Date.now() - Date.parse(iso)) / 1000);
+  if (s < 90) return "just now";
+  if (s < 5400) return `${Math.round(s / 60)} min ago`;
+  if (s < 129600) return `${Math.round(s / 3600)} h ago`;
+  return `${Math.round(s / 86400)} days ago`;
+};
+const mb = (n = 0) => `${(n / 1048576).toFixed(1)} MB`;
+
+function SystemHealth() {
+  const { data, reload } = useLoad(() => api.get<Health>("/system/health"));
+  const [busy, setBusy] = useState("");
+  const [open, setOpen] = useState<number | null>(null);
+  if (!data) return <Spinner />;
+  const b = data.backup;
+  const stale = !b || Date.now() - Date.parse(b.time) > 36 * 3600_000;
+  const errors24h = data.errors.filter((e) => e.level === "error" && Date.now() - Date.parse(e.time) < 86_400_000).length;
+  const act = async (key: string, fn: () => Promise<unknown>, done: string) => {
+    setBusy(key);
+    try {
+      await fn();
+      toast.success(done);
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy("");
+      reload();
+    }
+  };
+  return (
+    <div className="col" style={{ gap: 16 }}>
+      <div className="health-grid">
+        <div className={`card card-pad health-tile ${errors24h ? "is-bad" : "is-good"}`}>
+          <Icon name={errors24h ? "CircleAlert" : "CircleCheck"} size={18} />
+          <div><div className="health-value">{errors24h}</div><div className="muted">errors in the last 24 hours</div></div>
+        </div>
+        <div className={`card card-pad health-tile ${b && !b.ok ? "is-bad" : stale ? "is-warn" : "is-good"}`}>
+          <Icon name="HardDrive" size={18} />
+          <div>
+            <div className="health-value">{b ? (b.ok ? ago(b.time) : "Failed") : "Never"}</div>
+            <div className="muted">last backup{b?.ok && b.offsite === "copied" ? ", copied off-site" : ""}</div>
+          </div>
+        </div>
+        <div className={`card card-pad health-tile ${data.alertsConfigured ? "is-good" : "is-warn"}`}>
+          <Icon name="Bell" size={18} />
+          <div><div className="health-value">{data.alertsConfigured ? "On" : "Off"}</div><div className="muted">error alerts</div></div>
+        </div>
+      </div>
+
+      <div className="card card-pad">
+        <div className="section-title">Backups</div>
+        {b && !b.ok && <div className="alert alert-danger" style={{ marginBottom: 12 }}><Icon name="CircleAlert" size={16} /> <span><strong>{b.stage}</strong>: {b.error}</span></div>}
+        <dl className="health-list">
+          <dt>Schedule</dt>
+          <dd>{data.backupSchedule.length ? `Daily at ${data.backupSchedule.join(", ")} (server time)` : <>Not scheduled in Reef. Set <code>REEF_BACKUP_AT</code> (e.g. <code>03:15</code>) or run <code>npm run backup</code> from cron.</>}</dd>
+          <dt>Off-site copy</dt>
+          <dd>{data.offsiteConfigured ? "Runs REEF_BACKUP_AFTER after each backup" : <>Not set up. Set <code>REEF_BACKUP_AFTER</code> to a command that copies <code>$REEF_BACKUP_PATH</code> off this server.</>}</dd>
+          {b?.ok && (
+            <>
+              <dt>Last backup</dt>
+              <dd>{new Date(b.time).toLocaleString()} · database {mb(b.databaseBytes)} · {b.uploads} files ({mb(b.uploadBytes)})</dd>
+            </>
+          )}
+        </dl>
+        <div className="row row-wrap" style={{ marginTop: 12 }}>
+          <Button icon="HardDrive" loading={busy === "backup"} onClick={() => act("backup", () => api.post("/system/backup"), "Backup finished")}>Back up now</Button>
+        </div>
+      </div>
+
+      <div className="card card-pad">
+        <div className="section-title">Alerts</div>
+        <p className="muted" style={{ marginTop: 0 }}>
+          {data.alertsConfigured
+            ? "Server errors, failed backups and crashes are posted to your webhook. The same error alerts at most once every 15 minutes."
+            : <>Set <code>REEF_ALERT_WEBHOOK</code> to a Slack, Teams or Discord webhook (or your own endpoint) to hear about errors and failed backups as they happen.</>}
+        </p>
+        <Button icon="Send" disabled={!data.alertsConfigured} loading={busy === "alert"} onClick={() => act("alert", () => api.post("/system/test-alert"), "Test alert sent")}>Send a test alert</Button>
+      </div>
+
+      <div className="card" style={{ overflow: "hidden" }}>
+        <div className="card-header">
+          <div className="card-title">Error log</div>
+          <Button size="sm" variant="ghost" icon="RotateCcw" onClick={reload}>Refresh</Button>
+        </div>
+        {!data.errors.length ? (
+          <Empty icon="CircleCheck" title="No errors logged">Problems the server runs into appear here, newest first. They're also kept in <code>data/logs/</code> for 14 days.</Empty>
+        ) : (
+          <ul className="error-log">
+            {data.errors.map((e, i) => (
+              <li key={i} className={`error-row is-${e.level}`}>
+                <button className="error-summary" aria-expanded={open === i} onClick={() => setOpen(open === i ? null : i)}>
+                  <span className={`badge no-dot ${e.level === "error" ? "badge-danger" : "badge-warn"}`}>{e.scope}</span>
+                  <span className="error-message">{e.message}</span>
+                  <time className="subtle" dateTime={e.time} title={new Date(e.time).toLocaleString()}>{ago(e.time)}</time>
+                </button>
+                {open === i && (e.stack || e.meta) && <pre className="error-detail mono">{[e.meta ? JSON.stringify(e.meta) : "", e.stack ?? ""].filter(Boolean).join("\n\n")}</pre>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="subtle" style={{ fontSize: 12.5 }}>Up {Math.round(data.uptimeSeconds / 3600)} h · Node {data.node} · {data.memoryMb} MB memory</div>
     </div>
   );
 }

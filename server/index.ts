@@ -23,6 +23,10 @@ import { reactRuntime, getBrowserModule } from "./react";
 import { backfillVariants } from "./images";
 import { json } from "./db";
 import { mapType } from "./content";
+import { installProcessHandlers, logError } from "./log";
+import { startBackupSchedule } from "./backup-schedule";
+
+installProcessHandlers();
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT ?? 4400);
@@ -131,10 +135,11 @@ async function mountAdmin() {
 
 async function start() {
   await mountAdmin();
-  reactRuntime().catch((e) => console.error("[react] Couldn't build the React runtime:", e?.message ?? e));
+  reactRuntime().catch((e) => logError("react", e));
   if (get("SELECT 1 FROM functions WHERE enabled = 1 LIMIT 1")) warmFunctionWorkers();
   // responsive copies for images uploaded before resizing existed (runs in the background)
-  setTimeout(() => void backfillVariants(true).catch((e) => console.error("[images]", e?.message ?? e)), 2000).unref();
+  setTimeout(() => void backfillVariants(true).catch((e) => logError("images", e)), 2000).unref();
+  startBackupSchedule();
 
   // ---------- public website (catch-all) ----------
   app.get(/.*/, async (req, res) => {
@@ -152,7 +157,7 @@ async function start() {
         : status === 413
           ? "That's too large to upload. The limit is 50 MB per file."
           : "Something went wrong on our side. The error has been logged.";
-    if (status === 500) console.error(`[error] ${req.method} ${req.path}`, err);
+    if (status === 500) logError("server", err, { method: req.method, path: req.path });
     if (req.path.startsWith("/api/") || req.headers.accept?.includes("application/json")) {
       return res.status(status).json({ error: message, details: err instanceof HttpError ? err.details : undefined });
     }
@@ -175,7 +180,7 @@ async function tick() {
     try {
       publishPage(p.id, null);
     } catch (e) {
-      console.error("[scheduler] page", p.id, e);
+      logError("scheduler", e, { page: p.id });
     }
   }
   for (const i of all("SELECT id FROM content_items WHERE publish_at IS NOT NULL AND publish_at <= ? AND status != 'published'", ts)) {
@@ -183,10 +188,10 @@ async function tick() {
       publishItem(i.id, null);
     } catch (e: any) {
       run("UPDATE content_items SET publish_at = NULL, status = 'draft' WHERE id = ?", i.id);
-      console.error("[scheduler] item", i.id, e?.message);
+      logError("scheduler", e, { item: i.id });
     }
   }
-  await runDueSchedules().catch((e) => console.error("[scheduler] functions", e));
+  await runDueSchedules().catch((e) => logError("scheduler", e));
 }
 setInterval(() => void tick(), 30_000).unref();
 

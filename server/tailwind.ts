@@ -2,6 +2,7 @@
 // the page's rendered HTML (so Liquid, widgets and server-rendered React all
 // count) plus JS/JSX sources (classes that only exist in the browser).
 import path from "node:path";
+import { logError } from "./log";
 import { fileURLToPath } from "node:url";
 import { compile } from "@tailwindcss/node";
 import type { SiteSettings } from "../shared/types";
@@ -81,7 +82,7 @@ export async function buildTailwind(settings: Pick<SiteSettings, "tailwindEnable
     if (cached) cached.seen += list.length;
     return compiler.build(list);
   } catch (e: any) {
-    console.error("[tailwind]", e?.message ?? e);
+    logError("tailwind", e, undefined, "warn");
     return ""; // never break the page because of a Tailwind problem
   }
 }

@@ -4,6 +4,7 @@
 // enforces a CPU timeout, but it is NOT a security boundary: only trusted
 // developers (the "code.edit" permission) can author functions.
 import vm from "node:vm";
+import { logError } from "./log";
 import { Worker } from "node:worker_threads";
 import { all, get, run, json, now, getSettings, slugify } from "./db";
 import { getTypeByKey, listPublishedItems, getPublishedItem, itemForTemplate, mapItem } from "./content";
@@ -334,7 +335,7 @@ export async function runHooks<T>(event: string, payload: T): Promise<T> {
 
 /** Fire-and-forget variant for "after" events. */
 export function emit(event: string, payload: unknown) {
-  runHooks(event, payload).catch((e) => console.error(`[hooks] ${event}:`, e?.message ?? e));
+  runHooks(event, payload).catch((e) => logError("hooks", e, { event }, "warn"));
 }
 
 export async function runDueSchedules() {

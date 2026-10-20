@@ -489,6 +489,11 @@ describe("form notification email failures", () => {
     assert.equal(r.status, 200);
     assert.ok(Date.now() - started < 1000, "the response doesn't wait for the mail server");
     assert.equal((await admin.get(`/api/forms/${form.id}/submissions`)).body.length, 1);
-    await waitFor(() => (/\[forms\] Couldn't email the response to “flaky-mail”/.test(server.output()) ? true : undefined));
+    await waitFor(() => (/\[forms\] Couldn't email a response to “flaky-mail”/.test(server.output()) ? true : undefined));
+    // ...and it lands in the error log shown on Settings → System health, without the recipients' addresses
+    const logged = (await admin.get("/api/system/health")).body.errors.find((e: any) => e.scope === "forms");
+    assert.match(logged.message, /flaky-mail/);
+    assert.equal(logged.meta.recipients, 1);
+    assert.doesNotMatch(JSON.stringify(logged), /@/);
   });
 });

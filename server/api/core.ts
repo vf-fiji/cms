@@ -20,6 +20,8 @@ import { computePaths } from "../render/site";
 import { checkTailwindInput } from "../tailwind";
 import QRCode from "qrcode";
 import { newSecret, otpauthUrl, verifyTotp, newRecoveryCodes, useRecoveryCode } from "../totp";
+import { recentErrors, sendAlert } from "../log";
+import { BACKUP_TIMES, lastBackupStatus, runBackupNow } from "../backup-schedule";
 
 // Password accepted, second factor pending: short-lived, in-memory tickets.
 const challenges = new Map<string, { userId: number; expires: number; attempts: number }>();
@@ -291,6 +293,32 @@ core.put("/settings", requirePerm("settings.manage"), async (req, res) => {
   saveSettings(body);
   logActivity(req.user!.id, "updated", "settings", null, "Site settings");
   res.json(getSettings());
+});
+
+// ---------- system health ----------
+core.get("/system/health", requirePerm("settings.manage"), (_req, res) => {
+  res.json({
+    errors: recentErrors(100),
+    backup: lastBackupStatus(),
+    backupSchedule: BACKUP_TIMES,
+    offsiteConfigured: !!process.env.REEF_BACKUP_AFTER?.trim(),
+    alertsConfigured: !!process.env.REEF_ALERT_WEBHOOK,
+    uptimeSeconds: Math.round(process.uptime()),
+    node: process.version,
+    memoryMb: Math.round(process.memoryUsage().rss / 1048576),
+  });
+});
+core.post("/system/test-alert", requirePerm("settings.manage"), async (req, res) => {
+  if (!process.env.REEF_ALERT_WEBHOOK) throw new HttpError(400, "Alerts aren't set up. Set REEF_ALERT_WEBHOOK on the server first.");
+  await sendAlert("Test alert", `Sent from Settings → System health by ${req.user!.name}. If you can read this, alerts work.`, { level: "info" });
+  res.json({ ok: true });
+});
+core.post("/system/backup", requirePerm("settings.manage"), async (req, res) => {
+  logActivity(req.user!.id, "started", "backup", null, "Backup");
+  const ok = await runBackupNow();
+  const status = lastBackupStatus();
+  if (!ok) throw new HttpError(500, status && !status.ok ? `${status.stage}: ${status.error}` : "A backup is already running, or it couldn't start. Check the error log.");
+  res.json(status);
 });
 
 // ---------- redirects ----------

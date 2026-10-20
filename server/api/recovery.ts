@@ -1,4 +1,5 @@
 import { Router, type Request } from "express";
+import { logError } from "../log";
 import { get, getSettings, logActivity } from "../db";
 import { HttpError } from "../auth";
 import { str } from "../http";
@@ -48,7 +49,7 @@ function sendResetLink(req: Request, email: string) {
   if (!user) return;
   const base = publicBaseUrl(req);
   if (!base) {
-    console.error("[auth] Password reset requested but REEF_PUBLIC_URL isn't set, so no link can be sent. Set it to the site's public https:// address.");
+    logError("auth", new Error("Password reset requested but REEF_PUBLIC_URL isn't set, so no link can be sent. Set it to the site's public https:// address."));
     return;
   }
   if (!getMailTransport().delivers) {

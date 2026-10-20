@@ -111,6 +111,11 @@ The value is passed to Express's [`trust proxy`](https://expressjs.com/en/guide/
 | `REEF_RESET_TTL_MINUTES` | `60` | How long a reset link works. |
 | `REEF_RATE_LIMIT_FORMS` / `REEF_RATE_LIMIT_FN` / `REEF_RATE_LIMIT_RESET` / `REEF_RATE_LIMIT_SEARCH` | `10` / `120` / `5` / `60` | See [Rate limits](#rate-limits). `0` turns a limit off. |
 | `REEF_BACKUP_DIR` / `REEF_BACKUP_KEEP` | `./backups` / keep all | See [Backups and restore](#backups-and-restore). `/backups` in Docker. |
+| `REEF_BACKUP_AT` | (none) | Daily backup time(s) run by Reef itself, e.g. `03:15` or `03:15,15:15` (server time). |
+| `REEF_BACKUP_AFTER` | (none) | Command run after each backup to copy it off-site. The new folder is in `$REEF_BACKUP_PATH`. |
+| `REEF_ALERT_WEBHOOK` | (none) | Slack, Teams, Discord or custom webhook for errors, crashes and failed backups. See [Monitoring](#monitoring-and-alerts). |
+| `REEF_LOG_KEEP_DAYS` | `14` | How long `data/logs/errors-*.jsonl` files are kept. |
+| `REEF_FN_WORKERS` / `REEF_FN_MEMORY_MB` / `REEF_FN_TIMEOUT_MS` | `4` / `256` / `10000` | Server function worker pool size, memory cap per worker, and time limit per call. |
 
 `.env.example` lists them all.
 
@@ -131,11 +136,20 @@ Each backup folder holds:
 
 A half-finished backup is named `*.partial` and removed if it fails, so any `reef-backup-*` folder with a `manifest.json` is complete. Backups contain password hashes and form responses, so store them as carefully as the server.
 
-**Schedule it** and copy the results off the machine, for example with cron on the host:
+**Schedule it and copy it off the machine.** Reef can do both itself:
+
+```sh
+REEF_BACKUP_AT=03:15
+REEF_BACKUP_KEEP=14
+# any command; the new backup folder is in $REEF_BACKUP_PATH (and its name in $REEF_BACKUP_NAME)
+REEF_BACKUP_AFTER='rclone copy "$REEF_BACKUP_PATH" offsite:reef/"$REEF_BACKUP_NAME"'
+# or: aws s3 sync "$REEF_BACKUP_PATH" "s3://my-bucket/reef/$REEF_BACKUP_NAME"
+```
+
+In Docker the command runs inside the container, so add the tool it needs (e.g. `rclone`) in an image built `FROM reef-cms`, or write the backups volume to a mounted network share instead. Scheduled backups run in a separate process, so they never slow the site down. If the backup or the off-site command fails, it's logged, sent to `REEF_ALERT_WEBHOOK`, and shown on **Settings → System health**, which also has a **Back up now** button. `npm run backup` exits with code 1 if the backup fails and 3 if only the off-site copy fails. If you prefer host cron, that still works:
 
 ```cron
 15 3 * * *  cd /srv/reef/cms && docker compose exec -T reef npm run backup --silent -- --keep 14
-45 3 * * *  docker cp "$(cd /srv/reef/cms && docker compose ps -q reef)":/backups /srv/offsite-staging/reef
 ```
 
 ### Restore
@@ -169,6 +183,13 @@ After the restore:
 You can also restore by hand. With Reef stopped, copy the backup's `reef.db` and `uploads/` into an empty data folder. Don't leave old `reef.db-wal` or `reef.db-shm` files next to the restored database, because they belong to the old one.
 
 The test suite backs up a running server with `npm run backup`, checks that `npm run restore` refuses while a server is using the target folder, restores into it, and checks that pages, the reset password and media come back.
+
+## Monitoring and alerts
+
+- **Health check:** `GET /api/health` returns `200 {"ok":true}` once the database answers. Docker uses it, and it's the URL to give an external uptime monitor (UptimeRobot, Better Stack, Pingdom…).
+- **Error log:** server errors, failed emails, failed backups and crashes are written to `data/logs/errors-YYYY-MM-DD.jsonl` (one JSON object per line, kept `REEF_LOG_KEEP_DAYS` days) and listed on **Settings → System health**.
+- **Alerts:** set `REEF_ALERT_WEBHOOK` and each new kind of error is POSTed as JSON with `text` (Slack, Teams workflows) and `content` (Discord) fields. The same error alerts at most once every 15 minutes, and no more than 20 alerts go out per hour. **Settings → System health → Send a test alert** checks the setup.
+- **Crashes:** an uncaught exception is logged and alerted, then Reef exits so Docker's `restart: unless-stopped` (or your process manager) starts a clean process.
 
 ## Password recovery
 

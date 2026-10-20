@@ -1,4 +1,5 @@
 import { Router, type Request } from "express";
+import { logError } from "../log";
 import { all, get, run, json, now, logActivity, getSettings } from "../db";
 import { requirePerm, HttpError } from "../auth";
 import { str, key, idParam, notFound, toCsv } from "../http";
@@ -84,7 +85,7 @@ function notifyByEmail(req: Request, form: FormDef, sub: { id: number | null; da
     try {
       to = parseNotifyEmails(form.settings.notifyEmail ?? "");
     } catch (e: any) {
-      return console.error(`[forms] Not emailing the response to “${form.key}”: ${e.message}`);
+      return logError("forms", new Error(`Not emailing responses to “${form.key}”: ${e.message}`));
     }
     if (!to.length) return;
     if (!getMailTransport().delivers) {
@@ -93,9 +94,9 @@ function notifyByEmail(req: Request, form: FormDef, sub: { id: number | null; da
       return;
     }
     const msg = formNotification(form, sub, publicBaseUrl(req));
-    sendMail({ to: to.join(", "), ...msg }).catch((e: any) => console.error(`[forms] Couldn't email the response to “${form.key}” to ${to.join(", ")}: ${e?.message ?? e}`));
+    sendMail({ to: to.join(", "), ...msg }).catch((e: any) => logError("forms", new Error(`Couldn't email a response to “${form.key}”: ${e?.message ?? e}`), { recipients: to.length }));
   } catch (e: any) {
-    console.error(`[forms] Couldn't email the response to “${form.key}”: ${e?.message ?? e}`);
+    logError("forms", new Error(`Couldn't email a response to “${form.key}”: ${e?.message ?? e}`));
   }
 }
 
