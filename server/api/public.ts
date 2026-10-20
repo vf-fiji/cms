@@ -1,0 +1,83 @@
+import { Router } from "express";
+import { all, get, json, getSettings } from "../db";
+import { HttpError } from "../auth";
+import { listPublishedItems, getPublishedItem } from "../content";
+import { invokeEndpointByRoute, mapFunction, runFunction, unwrap } from "../functions";
+import { computePaths, type PageSnapshot } from "../render/site";
+import { publicForms } from "./forms";
+
+/** Unauthenticated routes: headless content API, form posts and function endpoints. */
+export const publicApi = Router();
+
+publicApi.use(publicForms);
+
+publicApi.get("/health", (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
+function requireHeadless() {
+  if (!getSettings().headlessApiEnabled) throw new HttpError(404, "The headless API is turned off in Settings.");
+}
+
+publicApi.get("/public/content/:type", (req, res) => {
+  requireHeadless();
+  const limit = Math.min(100, Number(req.query.limit) || 20);
+  const offset = Number(req.query.offset) || 0;
+  const { type, items, total } = listPublishedItems(String(req.params.type), {
+    limit,
+    offset,
+    tag: req.query.tag ? String(req.query.tag) : undefined,
+    category: req.query.category ? String(req.query.category) : undefined,
+    sort: req.query.sort ? String(req.query.sort) : undefined,
+  });
+  if (!type) throw new HttpError(404, "Unknown content type.");
+  res.json({ type: { key: type.key, name: type.name }, total, limit, offset, items });
+});
+
+publicApi.get("/public/content/:type/:slug", (req, res) => {
+  requireHeadless();
+  const item = getPublishedItem(String(req.params.type), String(req.params.slug));
+  if (!item) throw new HttpError(404, "Item not found.");
+  res.json(item);
+});
+
+publicApi.get("/public/pages", (_req, res) => {
+  requireHeadless();
+  const paths = computePaths();
+  res.json(
+    all("SELECT id, parent_id, published, published_at FROM pages WHERE published IS NOT NULL ORDER BY sort").map((r) => {
+      const s = json<PageSnapshot>(r.published, null as any);
+      return { id: r.id, parentId: r.parent_id, title: s.title, path: paths.get(r.id), seo: s.seo, layout: s.layout, publishedAt: r.published_at };
+    }),
+  );
+});
+
+publicApi.get("/public/site", (_req, res) => {
+  requireHeadless();
+  const s = getSettings();
+  res.json({ siteName: s.siteName, tagline: s.tagline, logo: s.logo, primaryColor: s.primaryColor, socialLinks: s.socialLinks });
+});
+
+// Developer-authored endpoints: /api/fn/<route>
+publicApi.all("/fn/:route", async (req, res) => {
+  const row = get("SELECT * FROM functions WHERE kind = 'endpoint' AND route = ? AND enabled = 1", String(req.params.route));
+  if (!row) throw new HttpError(404, `No function is listening on /api/fn/${req.params.route}`);
+  const fn = mapFunction(row);
+  if (fn.method !== "ANY" && fn.method !== req.method) throw new HttpError(405, `This endpoint only accepts ${fn.method} requests.`);
+  if (!fn.isPublic && !req.user) throw new HttpError(401, "Sign in to call this endpoint.");
+  const outcome = await runFunction(fn, {
+    request: {
+      method: req.method,
+      query: req.query,
+      body: req.body ?? null,
+      headers: { "content-type": req.headers["content-type"], "user-agent": req.headers["user-agent"], accept: req.headers.accept },
+      user: req.user ? { id: req.user.id, name: req.user.name, email: req.user.email } : null,
+    },
+  });
+  if (!outcome.ok) throw new HttpError(500, req.user ? outcome.error : "The function failed. Check its logs in Code Studio.");
+  const out = unwrap(outcome.result);
+  for (const [k, v] of Object.entries(out.headers)) if (!/^set-cookie$/i.test(k)) res.setHeader(k, v);
+  res.status(out.status);
+  if (typeof out.body === "string") res.send(out.body);
+  else res.json(out.body);
+});
+
+export { invokeEndpointByRoute };

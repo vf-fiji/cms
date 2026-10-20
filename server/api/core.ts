@@ -1,0 +1,338 @@
+import { Router } from "express";
+import crypto from "node:crypto";
+import { all, get, run, json, now, getSettings, saveSettings, logActivity, tx, slugify } from "../db";
+import {
+  createSession,
+  destroySession,
+  verifyPassword,
+  hashPassword,
+  requireAuth,
+  requirePerm,
+  HttpError,
+  checkThrottle,
+  recordFailure,
+  clearFailures,
+} from "../auth";
+import { str, int, idParam, notFound } from "../http";
+import { ALL_PERMISSIONS, type Role, type User } from "../../shared/types";
+import { computePaths } from "../render/site";
+import { checkTailwindInput } from "../tailwind";
+
+export const core = Router();
+
+// ---------- auth ----------
+core.post("/auth/login", (req, res) => {
+  const email = str(req.body?.email, "Email", { required: true, max: 200 }).toLowerCase();
+  const password = String(req.body?.password ?? "");
+  const throttleKey = `${req.ip}|${email}`;
+  checkThrottle(throttleKey);
+  const user = get("SELECT * FROM users WHERE email = ?", email);
+  if (!user || !user.active || !verifyPassword(password, user.password_hash)) {
+    recordFailure(throttleKey);
+    throw new HttpError(401, "That email and password don't match. Check them and try again.");
+  }
+  clearFailures(throttleKey);
+  createSession(res, user.id);
+  logActivity(user.id, "signed in", "user", user.id, user.name);
+  res.json({ ok: true });
+});
+
+core.post("/auth/logout", (req, res) => {
+  destroySession(req, res);
+  res.json({ ok: true });
+});
+
+core.get("/auth/me", (req, res) => {
+  if (!req.user) return res.json({ user: null });
+  const { csrf, ...user } = req.user;
+  res.json({ user, csrf });
+});
+
+core.use(requireAuth);
+
+core.post("/auth/password", (req, res) => {
+  const current = String(req.body?.current ?? "");
+  const next = String(req.body?.next ?? "");
+  const row = get("SELECT password_hash FROM users WHERE id = ?", req.user!.id);
+  if (!verifyPassword(current, row.password_hash)) throw new HttpError(400, "Your current password is incorrect.");
+  if (next.length < 10) throw new HttpError(400, "Choose a new password with at least 10 characters.");
+  run("UPDATE users SET password_hash = ? WHERE id = ?", hashPassword(next), req.user!.id);
+  res.json({ ok: true });
+});
+
+core.put("/auth/profile", (req, res) => {
+  const name = str(req.body?.name, "Name", { required: true, max: 120 });
+  run("UPDATE users SET name = ? WHERE id = ?", name, req.user!.id);
+  res.json({ ok: true });
+});
+
+// ---------- dashboard ----------
+core.get("/dashboard", (_req, res) => {
+  const count = (sql: string, ...p: any[]) => get<{ n: number }>(sql, ...p)?.n ?? 0;
+  const days: { day: string; views: number }[] = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10);
+    days.push({ day: d, views: count("SELECT COALESCE(SUM(views),0) n FROM page_views WHERE day = ?", d) });
+  }
+  const subsByDay: { day: string; count: number }[] = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10);
+    subsByDay.push({ day: d, count: count("SELECT COUNT(*) n FROM form_submissions WHERE substr(created_at,1,10) = ?", d) });
+  }
+  const paths = computePaths();
+  res.json({
+    stats: {
+      pages: count("SELECT COUNT(*) n FROM pages"),
+      livePages: count("SELECT COUNT(*) n FROM pages WHERE published IS NOT NULL"),
+      items: count("SELECT COUNT(*) n FROM content_items"),
+      liveItems: count("SELECT COUNT(*) n FROM content_items WHERE status = 'published'"),
+      media: count("SELECT COUNT(*) n FROM media"),
+      mediaBytes: count("SELECT COALESCE(SUM(size),0) n FROM media"),
+      submissions: count("SELECT COUNT(*) n FROM form_submissions"),
+      unread: count("SELECT COUNT(*) n FROM form_submissions WHERE is_read = 0"),
+      functions: count("SELECT COUNT(*) n FROM functions WHERE enabled = 1"),
+      views14: days.reduce((a, d) => a + d.views, 0),
+    },
+    views: days,
+    submissionsByDay: subsByDay,
+    topPages: all("SELECT path, SUM(views) views FROM page_views WHERE day >= ? GROUP BY path ORDER BY views DESC LIMIT 5", days[0].day),
+    review: [
+      ...all("SELECT id, title, updated_at FROM pages WHERE status = 'review' ORDER BY updated_at DESC LIMIT 10").map((r) => ({ kind: "page", id: r.id, title: r.title, updatedAt: r.updated_at })),
+      ...all(
+        "SELECT i.id, i.title, i.updated_at, t.key, t.singular FROM content_items i JOIN content_types t ON t.id = i.type_id WHERE i.status = 'review' ORDER BY i.updated_at DESC LIMIT 10",
+      ).map((r) => ({ kind: "item", id: r.id, title: r.title, updatedAt: r.updated_at, typeKey: r.key, typeName: r.singular })),
+    ],
+    drafts: all("SELECT id, title, updated_at, published IS NOT NULL AS live FROM pages WHERE status = 'draft' OR (published IS NOT NULL AND published_at < updated_at) ORDER BY updated_at DESC LIMIT 6").map((r) => ({
+      id: r.id,
+      title: r.title,
+      updatedAt: r.updated_at,
+      live: !!r.live,
+      path: paths.get(r.id),
+    })),
+    recentSubmissions: all(
+      "SELECT s.id, s.data, s.created_at, s.is_read, f.name, f.id form_id FROM form_submissions s JOIN forms f ON f.id = s.form_id ORDER BY s.id DESC LIMIT 6",
+    ).map((r) => ({ id: r.id, formId: r.form_id, formName: r.name, data: json(r.data, {}), createdAt: r.created_at, isRead: !!r.is_read })),
+    activity: activityRows(12),
+  });
+});
+
+function activityRows(limit: number, offset = 0) {
+  return all(
+    "SELECT a.*, u.name user_name FROM activity a LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT ? OFFSET ?",
+    limit,
+    offset,
+  ).map((r) => ({ id: r.id, userName: r.user_name, action: r.action, entity: r.entity, entityId: r.entity_id, label: r.label, createdAt: r.created_at }));
+}
+
+core.get("/activity", (req, res) => {
+  const limit = Math.min(200, Number(req.query.limit) || 50);
+  const offset = Number(req.query.offset) || 0;
+  res.json({ items: activityRows(limit, offset), total: get("SELECT COUNT(*) n FROM activity")!.n });
+});
+
+// ---------- global search (command palette) ----------
+core.get("/search", (req, res) => {
+  const q = String(req.query.q ?? "").trim();
+  if (!q) return res.json({ results: [] });
+  const like = `%${q.replace(/[%_]/g, "")}%`;
+  const paths = computePaths();
+  const results = [
+    ...all("SELECT id, title FROM pages WHERE title LIKE ? OR slug LIKE ? LIMIT 8", like, like).map((r) => ({
+      kind: "page",
+      id: r.id,
+      title: r.title,
+      subtitle: paths.get(r.id),
+      href: `/pages/${r.id}`,
+    })),
+    ...all(
+      "SELECT i.id, i.title, t.key, t.singular FROM content_items i JOIN content_types t ON t.id = i.type_id WHERE i.title LIKE ? OR i.data LIKE ? ORDER BY i.updated_at DESC LIMIT 10",
+      like,
+      like,
+    ).map((r) => ({ kind: "item", id: r.id, title: r.title, subtitle: r.singular, href: `/content/${r.key}/${r.id}` })),
+    ...all("SELECT id, original_name, title FROM media WHERE original_name LIKE ? OR title LIKE ? OR alt LIKE ? LIMIT 6", like, like, like).map((r) => ({
+      kind: "media",
+      id: r.id,
+      title: r.title || r.original_name,
+      subtitle: "Media",
+      href: `/media?focus=${r.id}`,
+    })),
+    ...all("SELECT id, name FROM forms WHERE name LIKE ? LIMIT 4", like).map((r) => ({ kind: "form", id: r.id, title: r.name, subtitle: "Form", href: `/forms/${r.id}` })),
+    ...all("SELECT id, name, kind FROM functions WHERE name LIKE ? OR code LIKE ? LIMIT 4", like, like).map((r) => ({
+      kind: "code",
+      id: r.id,
+      title: r.name,
+      subtitle: `Server ${r.kind}`,
+      href: `/code?fn=${r.id}`,
+    })),
+  ];
+  res.json({ results });
+});
+
+// ---------- settings ----------
+core.get("/settings", (_req, res) => res.json(getSettings()));
+core.put("/settings", requirePerm("settings.manage"), async (req, res) => {
+  const body = { ...(req.body ?? {}) };
+  for (const k of ["tailwindEnabled", "tailwindPreflight", "sitemapEnabled", "headlessApiEnabled"]) if (k in body) body[k] = !!body[k];
+  if ("tailwindCss" in body && typeof body.tailwindCss !== "string") throw new HttpError(400, "Tailwind CSS must be text.");
+  const current = getSettings();
+  const next = { ...current, ...body };
+  if (next.tailwindEnabled && (next.tailwindCss !== current.tailwindCss || next.tailwindPreflight !== current.tailwindPreflight)) {
+    try {
+      await checkTailwindInput(next);
+    } catch (e: any) {
+      throw new HttpError(400, e.message);
+    }
+  }
+  saveSettings(body);
+  logActivity(req.user!.id, "updated", "settings", null, "Site settings");
+  res.json(getSettings());
+});
+
+// ---------- redirects ----------
+core.get("/redirects", (_req, res) =>
+  res.json(all("SELECT * FROM redirects ORDER BY from_path").map((r) => ({ id: r.id, fromPath: r.from_path, toPath: r.to_path, code: r.code, hits: r.hits }))),
+);
+core.post("/redirects", requirePerm("settings.manage"), (req, res) => {
+  let from = str(req.body?.fromPath, "From path", { required: true, max: 400 });
+  if (!from.startsWith("/")) from = "/" + from;
+  from = from.replace(/\/+$/, "") || "/";
+  const to = str(req.body?.toPath, "Destination", { required: true, max: 1000 });
+  const code = [301, 302, 307, 308].includes(Number(req.body?.code)) ? Number(req.body.code) : 301;
+  if (get("SELECT 1 FROM redirects WHERE from_path = ?", from)) throw new HttpError(409, `A redirect from ${from} already exists.`);
+  const r = run("INSERT INTO redirects(from_path, to_path, code) VALUES(?,?,?)", from, to, code);
+  res.json({ id: r.lastId });
+});
+core.delete("/redirects/:id", requirePerm("settings.manage"), (req, res) => {
+  run("DELETE FROM redirects WHERE id = ?", idParam(req.params.id));
+  res.json({ ok: true });
+});
+
+// ---------- taxonomies ----------
+core.get("/terms", (req, res) => {
+  const taxonomy = req.query.taxonomy === "categories" ? "categories" : "tags";
+  const rows = all("SELECT * FROM terms WHERE taxonomy = ? ORDER BY name COLLATE NOCASE", taxonomy);
+  const usage = new Map<string, number>();
+  for (const r of all(`SELECT lower(j.value) v, COUNT(*) n FROM content_items, json_each(content_items.${taxonomy}) j GROUP BY lower(j.value)`)) usage.set(r.v, r.n);
+  res.json(rows.map((r) => ({ id: r.id, name: r.name, slug: r.slug, parentId: r.parent_id, description: r.description, count: usage.get(r.name.toLowerCase()) ?? 0 })));
+});
+core.post("/terms", requirePerm("content.edit"), (req, res) => {
+  const taxonomy = req.body?.taxonomy === "categories" ? "categories" : "tags";
+  const name = str(req.body?.name, "Name", { required: true, max: 80 });
+  const slug = slugify(name);
+  if (get("SELECT 1 FROM terms WHERE taxonomy = ? AND slug = ?", taxonomy, slug)) throw new HttpError(409, `“${name}” already exists.`);
+  const r = run("INSERT INTO terms(taxonomy, name, slug, parent_id, description) VALUES(?,?,?,?,?)", taxonomy, name, slug, req.body?.parentId || null, str(req.body?.description, "Description", { max: 500 }));
+  res.json({ id: r.lastId });
+});
+core.put("/terms/:id", requirePerm("content.edit"), (req, res) => {
+  const id = idParam(req.params.id);
+  const old = get("SELECT * FROM terms WHERE id = ?", id) ?? notFound("Term");
+  const name = str(req.body?.name, "Name", { required: true, max: 80 });
+  tx(() => {
+    run("UPDATE terms SET name = ?, slug = ?, parent_id = ?, description = ? WHERE id = ?", name, slugify(name), req.body?.parentId || null, str(req.body?.description, "Description", { max: 500 }), id);
+    // rename on items too, so renaming a tag is painless
+    if (old.name !== name) {
+      const col = old.taxonomy === "categories" ? "categories" : "tags";
+      for (const it of all(`SELECT id, ${col} v FROM content_items WHERE EXISTS (SELECT 1 FROM json_each(${col}) WHERE lower(value) = lower(?))`, old.name)) {
+        const list = json<string[]>(it.v, []).map((t) => (t.toLowerCase() === old.name.toLowerCase() ? name : t));
+        run(`UPDATE content_items SET ${col} = ? WHERE id = ?`, JSON.stringify(list), it.id);
+      }
+    }
+  });
+  res.json({ ok: true });
+});
+core.delete("/terms/:id", requirePerm("content.edit"), (req, res) => {
+  run("DELETE FROM terms WHERE id = ?", idParam(req.params.id));
+  res.json({ ok: true });
+});
+
+// ---------- users & roles ----------
+function mapRole(r: any): Role {
+  return { id: r.id, name: r.name, description: r.description, permissions: json(r.permissions, []), isSystem: !!r.is_system, userCount: r.user_count };
+}
+function mapUser(r: any): User {
+  return { id: r.id, email: r.email, name: r.name, roleId: r.role_id, roleName: r.role_name, active: !!r.active, lastLoginAt: r.last_login_at, createdAt: r.created_at };
+}
+const tempPassword = () => crypto.randomBytes(9).toString("base64url");
+
+core.get("/roles", (_req, res) =>
+  res.json(all("SELECT r.*, (SELECT COUNT(*) FROM users u WHERE u.role_id = r.id) user_count FROM roles r ORDER BY r.id").map(mapRole)),
+);
+core.post("/roles", requirePerm("users.manage"), (req, res) => {
+  const name = str(req.body?.name, "Role name", { required: true, max: 60 });
+  const perms = (Array.isArray(req.body?.permissions) ? req.body.permissions : []).filter((p: string) => ALL_PERMISSIONS.some((a) => a.key === p));
+  const r = run("INSERT INTO roles(name, description, permissions) VALUES(?,?,?)", name, str(req.body?.description, "Description", { max: 300 }), JSON.stringify(perms));
+  logActivity(req.user!.id, "created", "role", r.lastId, name);
+  res.json({ id: r.lastId });
+});
+core.put("/roles/:id", requirePerm("users.manage"), (req, res) => {
+  const id = idParam(req.params.id);
+  const role = get("SELECT * FROM roles WHERE id = ?", id) ?? notFound("Role");
+  let perms = (Array.isArray(req.body?.permissions) ? req.body.permissions : []).filter((p: string) => ALL_PERMISSIONS.some((a) => a.key === p));
+  if (role.is_system && role.name === "Administrator") perms = ALL_PERMISSIONS.map((p) => p.key); // never lock everyone out
+  run("UPDATE roles SET name = ?, description = ?, permissions = ? WHERE id = ?", role.is_system ? role.name : str(req.body?.name, "Role name", { required: true, max: 60 }), str(req.body?.description, "Description", { max: 300 }), JSON.stringify(perms), id);
+  logActivity(req.user!.id, "updated", "role", id, role.name);
+  res.json({ ok: true });
+});
+core.delete("/roles/:id", requirePerm("users.manage"), (req, res) => {
+  const id = idParam(req.params.id);
+  const role = get("SELECT * FROM roles WHERE id = ?", id) ?? notFound("Role");
+  if (role.is_system) throw new HttpError(400, "Built-in roles can't be deleted.");
+  if (get("SELECT 1 FROM users WHERE role_id = ?", id)) throw new HttpError(400, "Move the users in this role to another role first.");
+  run("DELETE FROM roles WHERE id = ?", id);
+  res.json({ ok: true });
+});
+
+core.get("/users", requirePerm("users.manage"), (_req, res) =>
+  res.json(all("SELECT u.*, r.name role_name FROM users u JOIN roles r ON r.id = u.role_id ORDER BY u.name").map(mapUser)),
+);
+core.post("/users", requirePerm("users.manage"), (req, res) => {
+  const email = str(req.body?.email, "Email", { required: true, max: 200 }).toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new HttpError(400, "Enter a valid email address.");
+  const name = str(req.body?.name, "Name", { required: true, max: 120 });
+  const roleId = int(req.body?.roleId, "Role");
+  if (!get("SELECT 1 FROM roles WHERE id = ?", roleId)) throw new HttpError(400, "Choose a role.");
+  if (get("SELECT 1 FROM users WHERE email = ?", email)) throw new HttpError(409, "Someone with that email already has an account.");
+  const password = tempPassword();
+  const r = run("INSERT INTO users(email, name, password_hash, role_id, created_at) VALUES(?,?,?,?,?)", email, name, hashPassword(password), roleId, now());
+  logActivity(req.user!.id, "invited", "user", r.lastId, name);
+  res.json({ id: r.lastId, temporaryPassword: password });
+});
+core.put("/users/:id", requirePerm("users.manage"), (req, res) => {
+  const id = idParam(req.params.id);
+  const u = get("SELECT * FROM users WHERE id = ?", id) ?? notFound("User");
+  const roleId = int(req.body?.roleId ?? u.role_id, "Role");
+  const active = req.body?.active === undefined ? !!u.active : !!req.body.active;
+  if (id === req.user!.id && (!active || roleId !== u.role_id)) throw new HttpError(400, "You can't deactivate yourself or change your own role.");
+  run("UPDATE users SET name = ?, role_id = ?, active = ? WHERE id = ?", str(req.body?.name ?? u.name, "Name", { required: true, max: 120 }), roleId, active, id);
+  if (!active) run("DELETE FROM sessions WHERE user_id = ?", id);
+  res.json({ ok: true });
+});
+core.post("/users/:id/reset-password", requirePerm("users.manage"), (req, res) => {
+  const id = idParam(req.params.id);
+  get("SELECT 1 FROM users WHERE id = ?", id) ?? notFound("User");
+  const password = tempPassword();
+  run("UPDATE users SET password_hash = ? WHERE id = ?", hashPassword(password), id);
+  run("DELETE FROM sessions WHERE user_id = ?", id);
+  res.json({ temporaryPassword: password });
+});
+core.delete("/users/:id", requirePerm("users.manage"), (req, res) => {
+  const id = idParam(req.params.id);
+  if (id === req.user!.id) throw new HttpError(400, "You can't delete your own account.");
+  run("DELETE FROM users WHERE id = ?", id);
+  res.json({ ok: true });
+});
+
+// ---------- revisions (shared) ----------
+core.get("/revisions/:entity/:id", (req, res) => {
+  res.json(
+    all(
+      "SELECT r.id, r.entity, r.entity_id, r.note, r.created_at, u.name user_name FROM revisions r LEFT JOIN users u ON u.id = r.user_id WHERE r.entity = ? AND r.entity_id = ? ORDER BY r.id DESC LIMIT 50",
+      req.params.entity,
+      idParam(req.params.id),
+    ).map((r) => ({ id: r.id, entity: r.entity, entityId: r.entity_id, note: r.note, userName: r.user_name, createdAt: r.created_at })),
+  );
+});
+core.get("/revision/:revId", (req, res) => {
+  const r = get("SELECT * FROM revisions WHERE id = ?", idParam(req.params.revId)) ?? notFound("Revision");
+  res.json({ id: r.id, data: json(r.data, {}), createdAt: r.created_at, note: r.note });
+});
