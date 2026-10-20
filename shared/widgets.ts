@@ -707,6 +707,19 @@ export default function Counter({ label = "Clicks" }) {
     },
   },
   {
+    type: "search",
+    name: "Search",
+    icon: "Search",
+    category: "Interactive",
+    description: "Search box with results from pages and content",
+    fields: [
+      { key: "placeholder", label: "Placeholder", type: "text" },
+      { key: "buttonLabel", label: "Button label", type: "text" },
+      { key: "limit", label: "Results to show", type: "number", min: 1, max: 50 },
+    ],
+    defaults: { placeholder: "Search the site", buttonLabel: "Search", limit: 10 },
+  },
+  {
     type: "html",
     name: "Code block",
     icon: "CodeXml",

@@ -4,6 +4,7 @@ import { listPublishedItems } from "../content";
 import { all, get, json } from "../db";
 import { renderReactWidget } from "../react";
 import { bestVariant, dimensionsFor, focalFor, srcsetFor } from "../images";
+import { search } from "../search";
 
 const CONTAINER: Record<string, number> = { narrow: 808, contained: 1128, wide: 1488 };
 
@@ -220,6 +221,16 @@ async function renderWidgetInner(w: WidgetNode, ctx: RenderCtx): Promise<string>
       return `<div class="rf-spacer" style="height:${Math.max(0, Number(p.height ?? 48))}px"></div>`;
     case "divider":
       return `<hr class="rf-divider" style="border-top-style:${["solid", "dashed", "dotted"].includes(p.style) ? p.style : "solid"}">`;
+    case "search": {
+      const q = String(ctx.query.q ?? "").slice(0, 200);
+      const form = `<form class="rf-search" role="search" method="get"><input class="rf-search-field" type="search" name="q" value="${e(q)}" placeholder="${e(p.placeholder || "Search the site")}" aria-label="${e(p.placeholder || "Search the site")}" autocomplete="off"><button class="rf-btn rf-btn-primary rf-btn-md" type="submit">${e(p.buttonLabel || "Search")}</button></form>`;
+      if (!q.trim()) return form;
+      const hits = search(q, Number(p.limit) || 10);
+      const list = hits.length
+        ? `<ol class="rf-search-results">${hits.map((h) => `<li><a href="${e(h.url)}"><span class="rf-search-title">${e(h.title)}</span><span class="rf-search-url">${e(h.url)}</span></a>${h.snippet ? `<p>${h.snippet}</p>` : ""}</li>`).join("")}</ol>`
+        : `<p class="rf-empty">No results for “${e(q)}”. Try fewer or different words.</p>`;
+      return `${form}<div class="rf-search-summary" role="status">${hits.length ? `${hits.length} result${hits.length === 1 ? "" : "s"} for “${e(q)}”` : ""}</div>${list}`;
+    }
     case "map": {
       const q = encodeURIComponent(String(p.address ?? ""));
       return `<div class="rf-map" style="height:${Number(p.height ?? 360)}px"><iframe title="Map of ${e(p.address)}" src="https://maps.google.com/maps?q=${q}&z=14&output=embed" loading="lazy"></iframe></div>`;

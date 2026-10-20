@@ -6,6 +6,7 @@ import { invokeEndpointByRoute, mapFunction, runFunction, unwrap } from "../func
 import { computePaths, type PageSnapshot } from "../render/site";
 import { publicForms } from "./forms";
 import { rateLimit, envLimit } from "../ratelimit";
+import { search } from "../search";
 
 /** Unauthenticated routes: headless content API, form posts and function endpoints. */
 export const publicApi = Router();
@@ -54,6 +55,14 @@ publicApi.get("/public/pages", (_req, res) => {
       return { id: r.id, parentId: r.parent_id, title: s.title, path: paths.get(r.id), seo: s.seo, layout: s.layout, publishedAt: r.published_at };
     }),
   );
+});
+
+// Site search for visitors and headless front ends (always on: it only covers published content)
+const searchLimit = rateLimit({ max: envLimit("REEF_RATE_LIMIT_SEARCH", 60), windowMs: 60_000, message: "Too many searches. Please wait a moment and try again." });
+publicApi.get("/public/search", searchLimit, (req, res) => {
+  const q = String(req.query.q ?? "").slice(0, 200);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ q, results: search(q, Math.min(50, Number(req.query.limit) || 10)) });
 });
 
 publicApi.get("/public/site", (_req, res) => {

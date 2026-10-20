@@ -109,7 +109,7 @@ The value is passed to Express's [`trust proxy`](https://expressjs.com/en/guide/
 | `REEF_ADMIN_EMAIL` / `REEF_ADMIN_PASSWORD` | random | First administrator, used only when the database is created. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | (none), `587`, `true` on port 465 | Outgoing email (password resets, form notifications). See [Password recovery](#password-recovery). |
 | `REEF_RESET_TTL_MINUTES` | `60` | How long a reset link works. |
-| `REEF_RATE_LIMIT_FORMS` / `REEF_RATE_LIMIT_FN` / `REEF_RATE_LIMIT_RESET` | `10` / `120` / `5` | See [Rate limits](#rate-limits). `0` turns a limit off. |
+| `REEF_RATE_LIMIT_FORMS` / `REEF_RATE_LIMIT_FN` / `REEF_RATE_LIMIT_RESET` / `REEF_RATE_LIMIT_SEARCH` | `10` / `120` / `5` / `60` | See [Rate limits](#rate-limits). `0` turns a limit off. |
 | `REEF_BACKUP_DIR` / `REEF_BACKUP_KEEP` | `./backups` / keep all | See [Backups and restore](#backups-and-restore). `/backups` in Docker. |
 
 `.env.example` lists them all.
@@ -198,6 +198,7 @@ Per client IP, in memory, in fixed one-minute windows. A blocked request gets `4
 | Public form submissions (`POST /api/public/forms/:key/submit`) | 10 per minute | `REEF_RATE_LIMIT_FORMS` |
 | Server function endpoints (`/api/fn/*`) | 120 per minute | `REEF_RATE_LIMIT_FN` |
 | "Forgot password" requests | 5 per 15 minutes, plus 3 per hour per email | `REEF_RATE_LIMIT_RESET` |
+| Site search (`GET /api/public/search`) | 60 per minute | `REEF_RATE_LIMIT_SEARCH` |
 | Sign-in | 5 failed attempts per IP and email within a minute, then a wait | (built in) |
 
 Form posts made without JavaScript get a short HTML page instead of JSON. Many mobile users can share one public IP address (carrier-grade NAT). If real visitors get blocked, raise the limits rather than turning them off. Put the limits on the proxy as well if you need more, for example nginx's `limit_req`.
@@ -219,7 +220,7 @@ Form posts made without JavaScript get a short HTML page instead of JSON. Many m
 | **Workflow** | Draft → Publish, "Changes pending" on live pages, discard changes, Authors' publishes go to review, scheduled publishing, full revision history. | Workflow + revision history |
 | **Users & roles** | 12 permissions, 4 built-in roles, custom roles, temporary-password onboarding. | Roles & permissions |
 | **SEO** | Meta title/description, social image, canonical, noindex, search-result preview, sitemap.xml, robots.txt, redirects with hit counts. | SEO + redirects |
-| **Headless** | `/api/public/content/:type`, `/api/public/pages`, `/api/public/site`. | Web services |
+| **Headless** | `/api/public/content/:type`, `/api/public/pages`, `/api/public/site`, `/api/public/search?q=`. | Web services |
 | **Tailwind CSS** | Tailwind v4 utilities work in Code blocks, Liquid and React widgets, templates and every block's class field. The server compiles only the classes each page uses, including ones in React/JS sources, and the editor canvas updates as you type. Brand colours are `bg-primary` / `text-accent`. Add `@theme` tokens and `@utility` classes in Settings → Tailwind CSS (checked before saving). Preflight is optional. | Custom CSS / themes |
 | **3D site map** | The whole site as an interactive three.js web: pages by depth, content types and items, forms, and internal links. Hover to trace connections, click to fly to a node, double-click to edit. Has search, filters and an accessible outline view. | Site map / page tree |
 | **Everything else** | ⌘K command palette, dashboard with page views, activity/audit log, dark mode, plain-language error messages. | — |
