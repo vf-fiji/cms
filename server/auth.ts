@@ -29,6 +29,7 @@ export interface AuthUser {
   roleId: number;
   roleName: string;
   permissions: Permission[];
+  twoFactorEnabled: boolean;
   csrf: string;
 }
 
@@ -77,7 +78,7 @@ export function loadUser(req: Request, _res: Response, next: NextFunction) {
   const token = readCookie(req, SESSION_COOKIE);
   if (token) {
     const row = get<any>(
-      `SELECT u.id, u.email, u.name, u.role_id, r.name AS role_name, r.permissions, s.csrf, s.expires_at
+      `SELECT u.id, u.email, u.name, u.role_id, u.totp_enabled, r.name AS role_name, r.permissions, s.csrf, s.expires_at
        FROM sessions s JOIN users u ON u.id = s.user_id JOIN roles r ON r.id = u.role_id
        WHERE s.token_hash = ? AND u.active = 1`,
       sha(token),
@@ -90,6 +91,7 @@ export function loadUser(req: Request, _res: Response, next: NextFunction) {
         roleId: row.role_id,
         roleName: row.role_name,
         permissions: json(row.permissions, []),
+        twoFactorEnabled: !!row.totp_enabled,
         csrf: row.csrf,
       };
     }

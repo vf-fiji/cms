@@ -62,6 +62,12 @@ export function Settings() {
       {tab === "general" && (
         <div className="col" style={{ gap: 16 }}>
           <div className="card card-pad">
+            <div className="section-title">Security</div>
+            <Field label="Two-factor sign-in" help="When on, everyone must set up an authenticator app before they can use the admin. Turn it on for your own account first (Account → Two-factor sign-in).">
+              <Switch checked={s.require2fa} onChange={(v) => set({ require2fa: v })} label={s.require2fa ? "Required for everyone" : "Optional"} />
+            </Field>
+          </div>
+          <div className="card card-pad">
             <div className="section-title">Identity</div>
             <div className="grid-2">
               <Field label="Site name"><input className="input" value={s.siteName} onChange={(e) => set({ siteName: e.target.value })} /></Field>

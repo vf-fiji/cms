@@ -281,6 +281,7 @@ export interface User {
   roleName?: string;
   permissions?: Permission[];
   active: boolean;
+  twoFactorEnabled?: boolean;
   lastLoginAt: string | null;
   createdAt: string;
 }
@@ -299,6 +300,8 @@ export interface SiteSettings {
   defaultMetaDescription: string;
   socialLinks: { label: string; url: string }[];
   analyticsHead: string;
+  /** everyone must set up two-factor sign-in before using the admin */
+  require2fa: boolean;
   /** compile Tailwind utilities for classes used on each page */
   tailwindEnabled: boolean;
   /** include Tailwind's Preflight reset (off by default: it changes Reef's base styles) */

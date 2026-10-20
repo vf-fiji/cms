@@ -5,7 +5,8 @@ import { Icon } from "./lib/icons";
 import { api } from "./lib/api";
 import { useTheme } from "./lib/theme";
 import { initials } from "./lib/format";
-import { Dialogs, Toasts, Spinner, Menu, useHotkey } from "./components/ui";
+import { Dialogs, Toasts, Spinner, Menu, useHotkey, toast } from "./components/ui";
+import { TwoFactorRequired } from "./components/TwoFactor";
 import { CommandPalette } from "./components/CommandPalette";
 import { Login, ForgotPassword, ResetPassword } from "./views/Login";
 import { Dashboard } from "./views/Dashboard";
@@ -96,8 +97,25 @@ export function App() {
 }
 
 function Gate() {
-  const { user, ready } = useAuth();
+  const { user, ready, refresh, logout } = useAuth();
   const loc = useLocation();
+  const [needs2fa, setNeeds2fa] = useState(false);
+  useEffect(() => {
+    if (!user || user.twoFactorEnabled) return setNeeds2fa(false);
+    api.get<{ required: boolean }>("/auth/2fa/status").then((s) => setNeeds2fa(s.required)).catch(() => {});
+  }, [user]);
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const left = sessionStorage.getItem("reef-recovery-warning");
+      if (left !== null) {
+        sessionStorage.removeItem("reef-recovery-warning");
+        toast.info(`You have ${left} recovery code${left === "1" ? "" : "s"} left. Make new ones under Account.`);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [user]);
   if (!ready) return <Spinner label="Starting Reef…" />;
   // Password recovery works whether or not someone is signed in on this browser.
   if (loc.pathname === "/forgot-password") return <ForgotPassword />;
@@ -106,6 +124,7 @@ function Gate() {
     if (loc.pathname !== "/login") return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
     return <Login />;
   }
+  if (needs2fa) return <TwoFactorRequired onDone={() => refresh()} onSignOut={logout} />;
   if (loc.pathname === "/login") {
     const next = new URLSearchParams(loc.search).get("next");
     if (next?.startsWith("/preview/")) {

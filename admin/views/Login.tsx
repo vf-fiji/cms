@@ -68,12 +68,19 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ticket, setTicket] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [useRecovery, setUseRecovery] = useState(false);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await api.post("/auth/login", { email, password });
+      const r = await api.post<{ ok?: boolean; twoFactor?: boolean; ticket?: string }>("/auth/login", { email, password });
+      if (r.twoFactor && r.ticket) {
+        setTicket(r.ticket);
+        return;
+      }
       await refresh();
     } catch (err: any) {
       setError(err.message);
@@ -81,6 +88,69 @@ export function Login() {
       setBusy(false);
     }
   };
+  const submitCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.post<{ recoveryCodesLeft: number | null }>("/auth/login/2fa", { ticket, code });
+      if (r.recoveryCodesLeft !== null && r.recoveryCodesLeft <= 3) {
+        try {
+          sessionStorage.setItem("reef-recovery-warning", String(r.recoveryCodesLeft));
+        } catch {
+          /* ignore */
+        }
+      }
+      await refresh();
+    } catch (err: any) {
+      setError(err.message);
+      if (/again\.$/.test(err.message) && /password/.test(err.message)) {
+        setTicket(null);
+        setCode("");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (ticket) {
+    return (
+      <AuthLayout>
+        <form className="login-form" onSubmit={submitCode}>
+          <h1>Two-factor sign-in</h1>
+          <p className="muted" style={{ marginBottom: 26 }}>
+            {useRecovery ? "Enter one of the recovery codes you saved when you set up two-factor sign-in." : "Open your authenticator app and enter the 6-digit code for Reef."}
+          </p>
+          {error && <Alert tone="danger">{error}</Alert>}
+          <Field label={useRecovery ? "Recovery code" : "6-digit code"} htmlFor="code">
+            <input
+              id="code"
+              className="input mono"
+              inputMode={useRecovery ? "text" : "numeric"}
+              autoComplete="one-time-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder={useRecovery ? "abcd-efgh" : "123 456"}
+              style={{ fontSize: 18, letterSpacing: ".12em" }}
+              required
+              autoFocus
+            />
+          </Field>
+          <Button type="submit" variant="primary" size="lg" className="btn-block" loading={busy} style={{ marginTop: 8 }}>
+            Verify and sign in
+          </Button>
+          <p style={{ fontSize: 13, marginTop: 18 }} className="row">
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => (setUseRecovery((v) => !v), setCode(""), setError(null))}>
+              {useRecovery ? "Use my authenticator app" : "Use a recovery code"}
+            </button>
+            <span className="spacer" />
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => (setTicket(null), setCode(""), setError(null))}>
+              Back
+            </button>
+          </p>
+        </form>
+      </AuthLayout>
+    );
+  }
   return (
     <AuthLayout>
       <form className="login-form" onSubmit={submit}>

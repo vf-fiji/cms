@@ -72,7 +72,14 @@ export function Users() {
                       <div className="row" style={{ gap: 12 }}>
                         <span className="avatar">{initials(u.name)}</span>
                         <div>
-                          <div className="cell-title">{u.name} {u.id === me?.id && <span className="badge badge-accent no-dot">You</span>}</div>
+                          <div className="cell-title">
+                            {u.name} {u.id === me?.id && <span className="badge badge-accent no-dot">You</span>}{" "}
+                            {u.twoFactorEnabled ? (
+                              <span className="badge badge-success no-dot" title="Two-factor sign-in is on"><Icon name="ShieldCheck" size={11} /> 2FA</span>
+                            ) : (
+                              <span className="badge no-dot" title="Two-factor sign-in is off">No 2FA</span>
+                            )}
+                          </div>
                           <div className="subtle" style={{ fontSize: 12.5 }}>{u.email}</div>
                         </div>
                       </div>
@@ -90,6 +97,15 @@ export function Users() {
                           trigger={(o) => <Button size="sm" variant="ghost" iconOnly icon="MoreHorizontal" onClick={o} aria-label="Actions" />}
                           items={[
                             { label: "Reset password", icon: "KeyRound", onClick: () => reset(u) },
+                            {
+                              label: "Reset two-factor sign-in",
+                              icon: "ShieldCheck",
+                              hidden: !u.twoFactorEnabled,
+                              onClick: async () => {
+                                if (!(await confirmDialog({ title: `Reset ${u.name}'s two-factor sign-in?`, message: "Use this if they lost their phone. They'll be signed out and can set it up again.", confirmLabel: "Reset 2FA", danger: true }))) return;
+                                api.post(`/users/${u.id}/reset-2fa`).then(() => (toast.success("Two-factor sign-in reset"), users.reload())).catch(toast.error);
+                              },
+                            },
                             { label: u.active ? "Deactivate" : "Reactivate", icon: u.active ? "Lock" : "Check", onClick: () => update(u, { active: !u.active }) },
                             { separator: true },
                             { label: "Delete", icon: "Trash2", danger: true, onClick: () => remove(u) },

@@ -18,6 +18,32 @@ import { str, int, idParam, notFound } from "../http";
 import { ALL_PERMISSIONS, type Permission, type Role, type User } from "../../shared/types";
 import { computePaths } from "../render/site";
 import { checkTailwindInput } from "../tailwind";
+import QRCode from "qrcode";
+import { newSecret, otpauthUrl, verifyTotp, newRecoveryCodes, useRecoveryCode } from "../totp";
+
+// Password accepted, second factor pending: short-lived, in-memory tickets.
+const challenges = new Map<string, { userId: number; expires: number; attempts: number }>();
+function newChallenge(userId: number) {
+  for (const [k, v] of challenges) if (v.expires < Date.now()) challenges.delete(k);
+  const ticket = crypto.randomBytes(24).toString("base64url");
+  challenges.set(ticket, { userId, expires: Date.now() + 5 * 60_000, attempts: 0 });
+  return ticket;
+}
+
+/** Accepts an authenticator code (not reused) or a recovery code. */
+function checkSecondFactor(user: any, code: string): "totp" | "recovery" | null {
+  const step = user.totp_secret ? verifyTotp(user.totp_secret, code) : null;
+  if (step !== null && step > (user.totp_last_step ?? 0)) {
+    run("UPDATE users SET totp_last_step = ? WHERE id = ?", step, user.id);
+    return "totp";
+  }
+  const remaining = useRecoveryCode(json<string[]>(user.totp_recovery, []), code);
+  if (remaining) {
+    run("UPDATE users SET totp_recovery = ? WHERE id = ?", JSON.stringify(remaining), user.id);
+    return "recovery";
+  }
+  return null;
+}
 
 export const core = Router();
 
@@ -33,9 +59,34 @@ core.post("/auth/login", (req, res) => {
     throw new HttpError(401, "That email and password don't match. Check them and try again.");
   }
   clearFailures(throttleKey);
+  if (user.totp_enabled) return res.json({ twoFactor: true, ticket: newChallenge(user.id) });
   createSession(res, user.id);
   logActivity(user.id, "signed in", "user", user.id, user.name);
   res.json({ ok: true });
+});
+
+core.post("/auth/login/2fa", (req, res) => {
+  const ticket = String(req.body?.ticket ?? "");
+  const c = challenges.get(ticket);
+  if (!c || c.expires < Date.now()) {
+    challenges.delete(ticket);
+    throw new HttpError(401, "That sign-in took too long. Enter your email and password again.");
+  }
+  const throttleKey = `${req.ip}|2fa|${c.userId}`;
+  checkThrottle(throttleKey);
+  const user = get("SELECT * FROM users WHERE id = ? AND active = 1", c.userId);
+  const how = user ? checkSecondFactor(user, String(req.body?.code ?? "")) : null;
+  if (!how) {
+    recordFailure(throttleKey);
+    if (++c.attempts >= 5) challenges.delete(ticket);
+    throw new HttpError(401, c.attempts >= 5 ? "Too many wrong codes. Enter your email and password again." : "That code isn't right. Check your authenticator app and try again.");
+  }
+  challenges.delete(ticket);
+  clearFailures(throttleKey);
+  createSession(res, user.id);
+  logActivity(user.id, how === "recovery" ? "signed in with a recovery code" : "signed in", "user", user.id, user.name);
+  const left = how === "recovery" ? json<string[]>(get("SELECT totp_recovery FROM users WHERE id = ?", user.id).totp_recovery, []).length : null;
+  res.json({ ok: true, recoveryCodesLeft: left });
 });
 
 core.post("/auth/logout", (req, res) => {
@@ -50,6 +101,58 @@ core.get("/auth/me", (req, res) => {
 });
 
 core.use(requireAuth);
+
+// When Settings require two-factor sign-in, people without it can only set it up.
+const OPEN_WITHOUT_2FA = new Set(["/auth/me", "/auth/logout", "/auth/2fa/setup", "/auth/2fa/enable", "/auth/2fa/status"]);
+core.use((req, _res, next) => {
+  if (!req.user || req.user.twoFactorEnabled || OPEN_WITHOUT_2FA.has(req.path) || (req.method === "GET" && req.path === "/settings")) return next();
+  if (getSettings().require2fa) return next(new HttpError(403, "Set up two-factor sign-in to continue.", { needs2fa: true }));
+  next();
+});
+
+// ---------- two-factor sign-in ----------
+core.post("/auth/2fa/setup", async (req, res) => {
+  const u = get("SELECT totp_enabled FROM users WHERE id = ?", req.user!.id);
+  if (u.totp_enabled) throw new HttpError(400, "Two-factor sign-in is already on.");
+  const secret = newSecret();
+  run("UPDATE users SET totp_pending = ? WHERE id = ?", secret, req.user!.id);
+  const url = otpauthUrl(secret, req.user!.email, getSettings().siteName || "Reef CMS");
+  res.json({ secret, otpauthUrl: url, qr: await QRCode.toDataURL(url, { margin: 1, width: 220 }) });
+});
+
+core.post("/auth/2fa/enable", (req, res) => {
+  const u = get("SELECT totp_pending FROM users WHERE id = ?", req.user!.id);
+  if (!u.totp_pending) throw new HttpError(400, "Start the setup again.");
+  const step = verifyTotp(u.totp_pending, String(req.body?.code ?? ""));
+  if (step === null) throw new HttpError(400, "That code isn't right. Make sure your phone's clock is set automatically, then try the newest code.");
+  const { codes, hashes } = newRecoveryCodes();
+  run("UPDATE users SET totp_secret = totp_pending, totp_pending = NULL, totp_enabled = 1, totp_recovery = ?, totp_last_step = ? WHERE id = ?", JSON.stringify(hashes), step, req.user!.id);
+  logActivity(req.user!.id, "turned on two-factor sign-in", "user", req.user!.id, req.user!.name);
+  res.json({ recoveryCodes: codes });
+});
+
+core.post("/auth/2fa/disable", (req, res) => {
+  const u = get("SELECT password_hash FROM users WHERE id = ?", req.user!.id);
+  if (!verifyPassword(String(req.body?.password ?? ""), u.password_hash)) throw new HttpError(400, "Your password is incorrect.");
+  if (getSettings().require2fa) throw new HttpError(400, "Two-factor sign-in is required on this site, so it can't be turned off.");
+  run("UPDATE users SET totp_secret = NULL, totp_pending = NULL, totp_enabled = 0, totp_recovery = '[]', totp_last_step = 0 WHERE id = ?", req.user!.id);
+  logActivity(req.user!.id, "turned off two-factor sign-in", "user", req.user!.id, req.user!.name);
+  res.json({ ok: true });
+});
+
+core.post("/auth/2fa/recovery-codes", (req, res) => {
+  const u = get("SELECT password_hash, totp_enabled FROM users WHERE id = ?", req.user!.id);
+  if (!u.totp_enabled) throw new HttpError(400, "Turn on two-factor sign-in first.");
+  if (!verifyPassword(String(req.body?.password ?? ""), u.password_hash)) throw new HttpError(400, "Your password is incorrect.");
+  const { codes, hashes } = newRecoveryCodes();
+  run("UPDATE users SET totp_recovery = ? WHERE id = ?", JSON.stringify(hashes), req.user!.id);
+  res.json({ recoveryCodes: codes });
+});
+
+core.get("/auth/2fa/status", (req, res) => {
+  const u = get("SELECT totp_enabled, totp_recovery FROM users WHERE id = ?", req.user!.id);
+  res.json({ enabled: !!u.totp_enabled, recoveryCodesLeft: json<string[]>(u.totp_recovery, []).length, required: getSettings().require2fa });
+});
 
 core.post("/auth/password", (req, res) => {
   const current = String(req.body?.current ?? "");
@@ -173,7 +276,8 @@ core.get("/search", (req, res) => {
 core.get("/settings", (_req, res) => res.json(getSettings()));
 core.put("/settings", requirePerm("settings.manage"), async (req, res) => {
   const body = { ...(req.body ?? {}) };
-  for (const k of ["tailwindEnabled", "tailwindPreflight", "sitemapEnabled", "headlessApiEnabled"]) if (k in body) body[k] = !!body[k];
+  for (const k of ["tailwindEnabled", "tailwindPreflight", "sitemapEnabled", "headlessApiEnabled", "require2fa"]) if (k in body) body[k] = !!body[k];
+  if (body.require2fa && !getSettings().require2fa && !req.user!.twoFactorEnabled) throw new HttpError(400, "Turn on two-factor sign-in for your own account first (Account → Two-factor sign-in), so you can't lock yourself out.");
   if ("tailwindCss" in body && typeof body.tailwindCss !== "string") throw new HttpError(400, "Tailwind CSS must be text.");
   const current = getSettings();
   const next = { ...current, ...body };
@@ -251,7 +355,7 @@ function mapRole(r: any): Role {
   return { id: r.id, name: r.name, description: r.description, permissions: json(r.permissions, []), isSystem: !!r.is_system, userCount: r.user_count };
 }
 function mapUser(r: any): User {
-  return { id: r.id, email: r.email, name: r.name, roleId: r.role_id, roleName: r.role_name, active: !!r.active, lastLoginAt: r.last_login_at, createdAt: r.created_at };
+  return { id: r.id, email: r.email, name: r.name, roleId: r.role_id, roleName: r.role_name, active: !!r.active, twoFactorEnabled: !!r.totp_enabled, lastLoginAt: r.last_login_at, createdAt: r.created_at };
 }
 const tempPassword = () => crypto.randomBytes(9).toString("base64url");
 
@@ -308,6 +412,15 @@ core.put("/users/:id", requirePerm("users.manage"), (req, res) => {
   if (!active) run("DELETE FROM sessions WHERE user_id = ?", id);
   res.json({ ok: true });
 });
+core.post("/users/:id/reset-2fa", requirePerm("users.manage"), (req, res) => {
+  const id = idParam(req.params.id);
+  const u = get("SELECT name FROM users WHERE id = ?", id) ?? notFound("User");
+  run("UPDATE users SET totp_secret = NULL, totp_pending = NULL, totp_enabled = 0, totp_recovery = '[]', totp_last_step = 0 WHERE id = ?", id);
+  run("DELETE FROM sessions WHERE user_id = ?", id);
+  logActivity(req.user!.id, "reset two-factor sign-in for", "user", id, u.name);
+  res.json({ ok: true });
+});
+
 core.post("/users/:id/reset-password", requirePerm("users.manage"), (req, res) => {
   const id = idParam(req.params.id);
   get("SELECT 1 FROM users WHERE id = ?", id) ?? notFound("User");

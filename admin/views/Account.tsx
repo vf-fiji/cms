@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme";
 import { initials } from "../lib/format";
-import { Button, Field, Switch, toast } from "../components/ui";
+import { Button, Field, Modal, promptDialog, Switch, toast } from "../components/ui";
+import { Icon } from "../lib/icons";
+import { RecoveryCodes, TwoFactorSetup } from "../components/TwoFactor";
 
 export function Account() {
   const { user, refresh } = useAuth();
@@ -66,6 +68,89 @@ export function Account() {
         </div>
         <div className="card-footer"><Button variant="primary" loading={busy === "pw"} disabled={!pw.current || pw.next.length < 10} onClick={changePw}>Update password</Button></div>
       </div>
+      <TwoFactorCard />
+    </div>
+  );
+}
+
+function TwoFactorCard() {
+  const { refresh } = useAuth();
+  const [status, setStatus] = useState<{ enabled: boolean; recoveryCodesLeft: number; required: boolean } | null>(null);
+  const [setting, setSetting] = useState(false);
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const load = () => api.get<{ enabled: boolean; recoveryCodesLeft: number; required: boolean }>("/auth/2fa/status").then(setStatus).catch(toast.error);
+  useEffect(() => {
+    load();
+  }, []);
+  const withPassword = async (title: string, confirmLabel: string) =>
+    promptDialog({ title, label: "Your password", confirmLabel, message: "Confirm it's you before changing two-factor sign-in.", placeholder: "Password", inputType: "password" });
+  const disable = async () => {
+    const password = await withPassword("Turn off two-factor sign-in?", "Turn off");
+    if (!password) return;
+    try {
+      await api.post("/auth/2fa/disable", { password });
+      toast.success("Two-factor sign-in is off");
+      await refresh();
+      load();
+    } catch (e) {
+      toast.error(e);
+    }
+  };
+  const regenerate = async () => {
+    const password = await withPassword("Make new recovery codes?", "Make new codes");
+    if (!password) return;
+    try {
+      const r = await api.post<{ recoveryCodes: string[] }>("/auth/2fa/recovery-codes", { password });
+      setCodes(r.recoveryCodes);
+      load();
+    } catch (e) {
+      toast.error(e);
+    }
+  };
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card-header">
+        <div className="card-title row" style={{ gap: 8 }}><Icon name="ShieldCheck" size={16} /> Two-factor sign-in</div>
+        {status && (status.enabled ? <span className="badge badge-success">On</span> : <span className="badge">Off</span>)}
+      </div>
+      <div className="card-body">
+        {!status ? (
+          <div className="skeleton" style={{ height: 40 }} />
+        ) : status.enabled ? (
+          <div className="col" style={{ gap: 12 }}>
+            <p className="muted" style={{ margin: 0 }}>
+              Signing in needs your password and a code from your authenticator app. You have <strong>{status.recoveryCodesLeft}</strong> recovery code{status.recoveryCodesLeft === 1 ? "" : "s"} left.
+            </p>
+            <div className="row row-wrap">
+              <Button icon="KeyRound" onClick={regenerate}>Make new recovery codes</Button>
+              {!status.required && <Button variant="danger" onClick={disable}>Turn off</Button>}
+            </div>
+          </div>
+        ) : (
+          <div className="col" style={{ gap: 12 }}>
+            <p className="muted" style={{ margin: 0 }}>Protect your account with a code from your phone as well as your password. Even if someone learns your password, they can't sign in.</p>
+            <div><Button variant="primary" icon="ShieldCheck" onClick={() => setSetting(true)}>Set up two-factor sign-in</Button></div>
+          </div>
+        )}
+      </div>
+      {setting && (
+        <Modal title="Set up two-factor sign-in" onClose={() => setSetting(false)} size="lg">
+          <TwoFactorSetup
+            onCancel={() => setSetting(false)}
+            onDone={async () => {
+              setSetting(false);
+              toast.success("Two-factor sign-in is on");
+              await refresh();
+              load();
+            }}
+          />
+        </Modal>
+      )}
+      {codes && (
+        <Modal title="Your new recovery codes" description="Your old codes no longer work." onClose={() => setCodes(null)}>
+          <RecoveryCodes codes={codes} onDone={() => setCodes(null)} />
+        </Modal>
+      )}
     </div>
   );
 }

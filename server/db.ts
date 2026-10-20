@@ -235,6 +235,11 @@ addColumn("custom_widgets", "renderer", "TEXT NOT NULL DEFAULT 'liquid'");
 addColumn("custom_widgets", "ssr", "INTEGER NOT NULL DEFAULT 1");
 addColumn("media", "variants", "TEXT NOT NULL DEFAULT '[]'");
 addColumn("media", "focal", "TEXT NOT NULL DEFAULT ''");
+addColumn("users", "totp_secret", "TEXT");
+addColumn("users", "totp_pending", "TEXT");
+addColumn("users", "totp_enabled", "INTEGER NOT NULL DEFAULT 0");
+addColumn("users", "totp_recovery", "TEXT NOT NULL DEFAULT '[]'");
+addColumn("users", "totp_last_step", "INTEGER NOT NULL DEFAULT 0");
 
 type Params = (string | number | bigint | null | Uint8Array)[];
 
@@ -306,6 +311,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   robotsTxt: "User-agent: *\nAllow: /\n",
   sitemapEnabled: true,
   headlessApiEnabled: true,
+  require2fa: false,
   defaultMetaDescription: "",
   socialLinks: [],
   analyticsHead: "",

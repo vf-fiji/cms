@@ -9,6 +9,7 @@ export interface Me {
   roleId: number;
   roleName: string;
   permissions: Permission[];
+  twoFactorEnabled: boolean;
 }
 
 interface AuthCtx {

@@ -284,7 +284,7 @@ export function Toasts() {
 // ---------- Confirm / prompt dialogs ----------
 type DialogReq =
   | { kind: "confirm"; title: string; message?: ReactNode; confirmLabel?: string; danger?: boolean; resolve: (v: boolean) => void }
-  | { kind: "prompt"; title: string; message?: ReactNode; label?: string; initial?: string; confirmLabel?: string; placeholder?: string; resolve: (v: string | null) => void };
+  | { kind: "prompt"; title: string; message?: ReactNode; label?: string; initial?: string; confirmLabel?: string; placeholder?: string; inputType?: "text" | "password"; resolve: (v: string | null) => void };
 let dialog: DialogReq | null = null;
 const dListeners = new Set<() => void>();
 const setDialog = (d: DialogReq | null) => ((dialog = d), dListeners.forEach((l) => l()));
@@ -292,7 +292,7 @@ const setDialog = (d: DialogReq | null) => ((dialog = d), dListeners.forEach((l)
 export function confirmDialog(opts: { title: string; message?: ReactNode; confirmLabel?: string; danger?: boolean }) {
   return new Promise<boolean>((resolve) => setDialog({ kind: "confirm", ...opts, resolve }));
 }
-export function promptDialog(opts: { title: string; message?: ReactNode; label?: string; initial?: string; confirmLabel?: string; placeholder?: string }) {
+export function promptDialog(opts: { title: string; message?: ReactNode; label?: string; initial?: string; confirmLabel?: string; placeholder?: string; inputType?: "text" | "password" }) {
   return new Promise<string | null>((resolve) => setDialog({ kind: "prompt", ...opts, resolve }));
 }
 export function Dialogs() {
@@ -325,7 +325,7 @@ export function Dialogs() {
       {d.message && <div className="muted" style={{ marginBottom: d.kind === "prompt" ? 14 : 0 }}>{d.message}</div>}
       {d.kind === "prompt" && (
         <Field label={d.label}>
-          <input className="input" autoFocus value={value} placeholder={d.placeholder} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && close(value.trim() || null)} />
+          <input className="input" type={d.inputType ?? "text"} autoComplete={d.inputType === "password" ? "current-password" : undefined} autoFocus value={value} placeholder={d.placeholder} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && close(value.trim() || null)} />
         </Field>
       )}
     </Modal>
