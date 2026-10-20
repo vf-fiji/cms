@@ -9,12 +9,13 @@ import {
   requireAuth,
   requirePerm,
   HttpError,
+  can,
   checkThrottle,
   recordFailure,
   clearFailures,
 } from "../auth";
 import { str, int, idParam, notFound } from "../http";
-import { ALL_PERMISSIONS, type Role, type User } from "../../shared/types";
+import { ALL_PERMISSIONS, type Permission, type Role, type User } from "../../shared/types";
 import { computePaths } from "../render/site";
 import { checkTailwindInput } from "../tailwind";
 
@@ -323,7 +324,14 @@ core.delete("/users/:id", requirePerm("users.manage"), (req, res) => {
 });
 
 // ---------- revisions (shared) ----------
+// Developer code history is only visible to people who can edit that code
+const REVISION_PERMS: Record<string, Permission> = { template: "templates.edit", widget: "code.edit", asset: "code.edit", function: "code.edit" };
+function checkRevisionAccess(req: Parameters<typeof can>[0], entity: string) {
+  const perm = REVISION_PERMS[entity];
+  if (perm && !can(req, perm)) throw new HttpError(403, "Your role doesn't allow this. Ask an administrator for access.");
+}
 core.get("/revisions/:entity/:id", (req, res) => {
+  checkRevisionAccess(req, req.params.entity);
   res.json(
     all(
       "SELECT r.id, r.entity, r.entity_id, r.note, r.created_at, u.name user_name FROM revisions r LEFT JOIN users u ON u.id = r.user_id WHERE r.entity = ? AND r.entity_id = ? ORDER BY r.id DESC LIMIT 50",
@@ -334,5 +342,6 @@ core.get("/revisions/:entity/:id", (req, res) => {
 });
 core.get("/revision/:revId", (req, res) => {
   const r = get("SELECT * FROM revisions WHERE id = ?", idParam(req.params.revId)) ?? notFound("Revision");
+  checkRevisionAccess(req, r.entity);
   res.json({ id: r.id, data: json(r.data, {}), createdAt: r.created_at, note: r.note });
 });

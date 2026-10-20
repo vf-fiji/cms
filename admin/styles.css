@@ -521,7 +521,7 @@ body.reef-pro .input, body.reef-pro .select, body.reef-pro .textarea { backgroun
 .studio-toolbar .input, .studio-toolbar .select { background: #2d2d30; border-color: #3c3c3c; color: #ddd; height: 30px; box-shadow: none; font-size: 12.5px; }
 .studio-toolbar .switch { color: #bbb; font-size: 12.5px; }
 .studio-sub-tabs { display: flex; gap: 2px; }
-.studio-sub-tabs button { height: 28px; padding: 0 10px; border-radius: 6px; border: 0; background: none; color: #999; cursor: pointer; font-weight: 600; font-size: 12px; }
+.studio-sub-tabs button { height: 28px; padding: 0 10px; white-space: nowrap; border-radius: 6px; border: 0; background: none; color: #999; cursor: pointer; font-weight: 600; font-size: 12px; }
 .studio-sub-tabs button.active { background: #2d2d30; color: #fff; }
 .studio-editor { flex: 1; min-height: 0; overflow: hidden; display: flex; }
 .studio-editor > div { flex: 1; min-width: 0; }
@@ -545,6 +545,35 @@ body.reef-pro .input, body.reef-pro .select, body.reef-pro .textarea { backgroun
 .studio-props .btn { background: #2d2d30; border-color: #3c3c3c; color: #ddd; box-shadow: none; }
 .studio-props .card { background: #232323; border-color: #333; }
 .studio .kbd { background: #2d2d30; border-color: #3c3c3c; color: #aaa; box-shadow: none; }
+.studio-toolbar .btn.active { background: #37373d; border-color: #555; color: #fff; }
+.studio-history { display: grid; grid-template-columns: 260px 1fr; min-height: 0; }
+.studio-history-list { background: #1b1b1b; border-right: 1px solid #2b2b2b; overflow-y: auto; min-height: 0; }
+.studio-history-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.studio-history-note { color: #7a7a7a; padding: 10px 16px; font-size: 12.5px; line-height: 1.5; }
+.studio-revision { display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left; background: none; border: 0; border-left: 2px solid transparent; padding: 8px 12px 8px 14px; color: #ccc; cursor: pointer; font: inherit; }
+.studio-revision:hover { background: #2a2d2e; }
+.studio-revision.active { background: #37373d; border-left-color: #e60000; color: #fff; }
+.studio-revision .dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; flex: none; }
+.studio-revision-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12.5px; }
+.studio-revision-meta { display: block; color: #858585; font-size: 11.5px; margin-top: 2px; }
+.studio-revision-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #89d185; }
+.studio-changed-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #e2c08d; margin-left: 6px; vertical-align: middle; }
+.studio-diff-wrap { flex: 1; overflow: auto; min-height: 0; }
+.studio-diff-settings { padding: 8px 14px; border-bottom: 1px solid #2b2b2b; font-size: 12.5px; color: #aaa; display: grid; gap: 3px; }
+.studio-diff-settings span { color: #ddd; font-weight: 600; }
+.studio-diff-settings del { color: #f48771; } .studio-diff-settings ins { color: #89d185; text-decoration: none; }
+.studio-diff { width: 100%; border-collapse: collapse; table-layout: fixed; font-family: var(--mono); font-size: 12px; line-height: 1.55; }
+.studio-diff th { position: sticky; top: 0; z-index: 1; background: #181818; color: #999; font-family: var(--font); font-size: 11px; font-weight: 600; line-height: 1; text-transform: uppercase; letter-spacing: .06em; text-align: left; padding: 9px 12px; border-bottom: 1px solid #2b2b2b; }
+.studio-diff th + th { border-left: 1px solid #2b2b2b; }
+.studio-diff td { padding: 0 10px; vertical-align: top; }
+.studio-diff td.code { white-space: pre-wrap; word-break: break-all; color: #d4d4d4; }
+.studio-diff td.ln { color: #5a5a5a; text-align: right; user-select: none; padding: 0 8px; }
+.studio-diff td.ln:nth-child(3) { border-left: 1px solid #2b2b2b; }
+.studio-diff td.del { background: rgba(244, 135, 113, .13); } .studio-diff td.ln.del { color: #f48771; }
+.studio-diff td.add { background: rgba(137, 209, 133, .12); } .studio-diff td.ln.add { color: #89d185; }
+.studio-diff td.blank { background: #191919; }
+.studio-diff tr.fold td { background: #202020; color: #7a7a7a; text-align: center; padding: 3px; cursor: pointer; font-size: 11.5px; }
+.studio-diff tr.fold:hover td { color: #ddd; background: #262626; }
 .studio-status { height: 24px; background: #c40000; color: #fff; display: flex; align-items: center; gap: 14px; padding: 0 12px; font-size: 12px; flex: none; }
 
 /* ---------- command palette ---------- */

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import type { CodeAsset, CustomWidget, ServerFunction, Template } from "../../shared/types";
+import type { CodeAsset, CustomWidget, Revision, ServerFunction, Template } from "../../shared/types";
 import { api } from "../lib/api";
 import { Icon, PICKER_ICONS } from "../lib/icons";
 import { useAuth } from "../lib/auth";
-import { timeAgo } from "../lib/format";
+import { formatDate, timeAgo } from "../lib/format";
 import { CodeEditor, type CodeLang } from "../components/CodeEditor";
 import { Button, confirmDialog, Field, Modal, Switch, toast, useHotkey, useProChrome } from "../components/ui";
 
@@ -348,6 +348,7 @@ function FileEditor({
   const tab = tabs.find((t) => t.key === sub) ?? tabs[0];
   const [fieldsText, setFieldsText] = useState(() => (kind === "widget" ? JSON.stringify(f.fields, null, 2) : ""));
   const [fieldsError, setFieldsError] = useState<string | null>(null);
+  const [history, setHistory] = useState(false);
   const value = tab.key === "fields" ? fieldsText : String(f[tab.key] ?? "");
   const onChange = (v: string) => {
     if (tab.key === "fields") {
@@ -362,11 +363,21 @@ function FileEditor({
       }
     } else onEdit({ [tab.key]: v });
   };
+  const restore = async (data: Record<string, any>, when: string) => {
+    if (dirty && !(await confirmDialog({ title: "Replace your unsaved changes?", message: "The editor will show this older version instead. Your unsaved edits will be lost.", confirmLabel: "Load this version", danger: true }))) return;
+    if (kind === "widget") {
+      setFieldsText(JSON.stringify(data.fields ?? [], null, 2));
+      setFieldsError(null);
+    }
+    onEdit(data);
+    setHistory(false);
+    toast.success(`Loaded the version from ${when}. Review it, then save to make it live.`);
+  };
 
   return (
     <>
       <div className="studio-toolbar">
-        {tabs.length > 1 && (
+        {tabs.length > 1 && !history && (
           <div className="studio-sub-tabs">
             {tabs.map((t) => (
               <button key={t.key} className={sub === t.key ? "active" : ""} onClick={() => setSub(t.key)}>
@@ -377,10 +388,13 @@ function FileEditor({
         )}
         <div className="spacer" />
         {kind === "template" && <Button size="sm" icon="Globe" onClick={() => window.open("/", "_blank")}>View site</Button>}
+        <Button size="sm" icon="History" className={history ? "active" : ""} onClick={() => setHistory(!history)} aria-pressed={history}>History</Button>
         <Button size="sm" variant="primary" icon="Save" loading={saving} disabled={!dirty || !!fieldsError} onClick={onSave}>Save</Button>
       </div>
       <div className="studio-editor">
-        {kind === "function" ? (
+        {history ? (
+          <HistoryPanel kind={kind} file={f} activeField={tab.key} onRestore={restore} onClose={() => setHistory(false)} />
+        ) : kind === "function" ? (
           <FunctionWorkbench fn={f} value={value} onChange={onChange} onSave={onSave} onReload={onReload} />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -388,9 +402,11 @@ function FileEditor({
             <CodeEditor value={value} onChange={onChange} language={tab.lang} height="100%" dark onSave={onSave} className="grow" />
           </div>
         )}
-        <aside className="studio-props">
-          <Props kind={kind} f={f} onEdit={onEdit} onDelete={onDelete} hookEvents={hookEvents} />
-        </aside>
+        {!history && (
+          <aside className="studio-props">
+            <Props kind={kind} f={f} onEdit={onEdit} onDelete={onDelete} hookEvents={hookEvents} />
+          </aside>
+        )}
       </div>
     </>
   );
@@ -507,6 +523,258 @@ function Props({ kind, f, onEdit, onDelete, hookEvents }: { kind: Kind; f: any; 
       <div className="divider" style={{ background: "#333" }} />
       <Button size="sm" icon="Trash2" onClick={onDelete} disabled={kind === "template" && f.isDefault}>Delete</Button>
     </>
+  );
+}
+
+// ---------------------------------------------------------------------
+// History: every save is a revision on the server. Pick one to compare it with the editor, then load it back in.
+const HISTORY_FIELDS: Record<Kind, [string, string][]> = {
+  template: [["html", "HTML (Liquid)"], ["css", "CSS"], ["js", "JavaScript"], ["head", "<head>"]],
+  widget: [["template", "Template / component"], ["css", "CSS"], ["js", "JavaScript"], ["fields", "Fields (JSON)"]],
+  asset: [["content", "Content"]],
+  function: [["code", "index.js"]],
+};
+const SETTING_LABELS: Record<string, string> = { name: "Name", icon: "Icon", description: "Description", renderer: "Renderer", ssr: "Server-side rendering", location: "Position", enabled: "Enabled", route: "Route", method: "Method", event: "Runs when", intervalMinutes: "Every (minutes)", isPublic: "Public" };
+const fieldText = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : JSON.stringify(v, null, 2));
+const settingText = (v: unknown) => (typeof v === "boolean" ? (v ? "On" : "Off") : v === "" || v == null ? "(empty)" : String(v));
+
+function HistoryPanel({ kind, file, activeField, onRestore, onClose }: { kind: Kind; file: any; activeField: string; onRestore: (data: Record<string, any>, when: string) => void; onClose: () => void }) {
+  const [revisions, setRevisions] = useState<Revision[] | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [data, setData] = useState<Record<number, Record<string, any>>>({});
+  const [field, setField] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .get<Revision[]>(`/revisions/${kind}/${file.id}`)
+      .then((r) => {
+        setRevisions(r);
+        setSelected((s) => (s && r.some((x) => x.id === s) ? s : r[0]?.id ?? null));
+      })
+      .catch((e) => (toast.error(e), setRevisions([])));
+  }, [kind, file.id, file.updatedAt]);
+
+  useEffect(() => {
+    if (selected == null || data[selected]) return;
+    api
+      .get<{ data: Record<string, any> }>(`/revision/${selected}`)
+      .then((r) => setData((d) => ({ ...d, [selected]: r.data })))
+      .catch(toast.error);
+  }, [selected, data]);
+
+  const rev = revisions?.find((r) => r.id === selected) ?? null;
+  const old = selected != null ? data[selected] : undefined;
+  const fields = HISTORY_FIELDS[kind].filter(([k]) => fieldText(old?.[k]) || fieldText(file[k]));
+  const changed = new Set(fields.filter(([k]) => old && fieldText(old[k]) !== fieldText(file[k])).map(([k]) => k));
+  const settings = old ? Object.keys(old).filter((k) => SETTING_LABELS[k] && JSON.stringify(old[k]) !== JSON.stringify(file[k])) : [];
+  const shown = field && fields.some(([k]) => k === field) ? field : changed.has(activeField) ? activeField : ([...changed][0] ?? fields[0]?.[0] ?? null);
+  const identical = !!old && !changed.size && !settings.length;
+  const when = rev ? formatDate(rev.createdAt, true) : "";
+
+  return (
+    <div className="studio-history">
+      <div className="studio-history-list">
+        <div className="studio-side-head">
+          <span>History</span>
+          <button title="Back to editor" aria-label="Back to editor" onClick={onClose}>
+            <Icon name="X" size={14} />
+          </button>
+        </div>
+        {!revisions ? (
+          <div className="studio-history-note">Loading…</div>
+        ) : !revisions.length ? (
+          <div className="studio-history-note">No history yet. Each time you save, the new version is kept here so you can compare it or roll back.</div>
+        ) : (
+          revisions.map((r, i) => (
+            <button key={r.id} className={`studio-revision ${r.id === selected ? "active" : ""}`} onClick={() => setSelected(r.id)} title={new Date(r.createdAt).toLocaleString()}>
+              <span className="dot" style={{ background: r.note.startsWith("Restored") ? "#9cdcfe" : i === 0 ? "#89d185" : "#555" }} />
+              <span className="grow" style={{ minWidth: 0 }}>
+                <span className="studio-revision-title">
+                  {r.note || "Saved"}
+                  {i === 0 && <span className="studio-revision-tag">Latest</span>}
+                </span>
+                <span className="studio-revision-meta truncate">
+                  {r.userName ?? "Unknown"} · {timeAgo(r.createdAt)}
+                </span>
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+
+      <div className="studio-history-main">
+        {!rev ? (
+          <div className="studio-empty">
+            <div>
+              <h3>Version history</h3>
+              <p>Pick a version on the left to compare it with what's in the editor.</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="studio-toolbar">
+              {fields.length > 1 && (
+                <div className="studio-sub-tabs">
+                  {fields.map(([k, label]) => (
+                    <button key={k} className={shown === k ? "active" : ""} onClick={() => setField(k)}>
+                      {label}
+                      {changed.has(k) && <span className="studio-changed-dot" title="Changed" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="spacer" />
+              <Button size="sm" variant="primary" icon="RotateCcw" disabled={!old || identical} onClick={() => old && onRestore(old, when)}>
+                Restore
+              </Button>
+            </div>
+            {!old ? (
+              <div className="studio-history-note">Loading…</div>
+            ) : (
+              <div className="studio-diff-wrap">
+                {settings.length > 0 && (
+                  <div className="studio-diff-settings">
+                    {settings.map((k) => (
+                      <div key={k}>
+                        <span>{SETTING_LABELS[k]}</span> <del>{settingText(old[k])}</del> → <ins>{settingText(file[k])}</ins>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {identical ? (
+                  <div className="studio-history-note">This version is the same as what's in the editor.</div>
+                ) : (
+                  shown && <SideBySideDiff key={`${selected}:${shown}`} before={fieldText(old[shown])} after={fieldText(file[shown])} beforeLabel={`${rev.userName ?? "Unknown"} · ${when}`} afterLabel="Current (in editor)" />
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type DiffOp = { type: "same" | "del" | "add"; a?: number; b?: number };
+
+/** Line diff (longest common subsequence). Common head and tail are trimmed first, so typical edits stay cheap. */
+function diffLines(a: string[], b: string[]): DiffOp[] {
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) endA--, endB--;
+  const ops: DiffOp[] = [];
+  for (let i = 0; i < start; i++) ops.push({ type: "same", a: i, b: i });
+  const n = endA - start;
+  const m = endB - start;
+  if (n * m > 4_000_000) {
+    // too big to align line by line: show the middle as replaced
+    for (let i = 0; i < n; i++) ops.push({ type: "del", a: start + i });
+    for (let j = 0; j < m; j++) ops.push({ type: "add", b: start + j });
+  } else {
+    const w = m + 1;
+    const L = new Uint32Array((n + 1) * w);
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i * w + j] = a[start + i] === b[start + j] ? L[(i + 1) * w + j + 1] + 1 : Math.max(L[(i + 1) * w + j], L[i * w + j + 1]);
+    let i = 0;
+    let j = 0;
+    while (i < n && j < m) {
+      if (a[start + i] === b[start + j]) ops.push({ type: "same", a: start + i++, b: start + j++ });
+      else if (L[(i + 1) * w + j] >= L[i * w + j + 1]) ops.push({ type: "del", a: start + i++ });
+      else ops.push({ type: "add", b: start + j++ });
+    }
+    while (i < n) ops.push({ type: "del", a: start + i++ });
+    while (j < m) ops.push({ type: "add", b: start + j++ });
+  }
+  for (let k = 0; k < a.length - endA; k++) ops.push({ type: "same", a: endA + k, b: endB + k });
+  return ops;
+}
+
+type DiffRow = { kind: "same" | "change"; left?: number; right?: number } | { kind: "fold"; from: number; count: number };
+const CONTEXT = 3;
+
+function SideBySideDiff({ before, after, beforeLabel, afterLabel }: { before: string; after: string; beforeLabel: string; afterLabel: string }) {
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const a = useMemo(() => before.split("\n"), [before]);
+  const b = useMemo(() => after.split("\n"), [after]);
+  const rows = useMemo(() => {
+    // pair removed lines with added lines so edits sit side by side
+    const out: DiffRow[] = [];
+    let dels: number[] = [];
+    let adds: number[] = [];
+    const flush = () => {
+      for (let k = 0; k < Math.max(dels.length, adds.length); k++) out.push({ kind: "change", left: dels[k], right: adds[k] });
+      dels = [];
+      adds = [];
+    };
+    for (const op of diffLines(a, b)) {
+      if (op.type === "same") flush(), out.push({ kind: "same", left: op.a, right: op.b });
+      else if (op.type === "del") dels.push(op.a!);
+      else adds.push(op.b!);
+    }
+    flush();
+    return out;
+  }, [a, b]);
+  const visible = useMemo(() => {
+    const near = rows.map(() => false);
+    rows.forEach((r, i) => {
+      if (r.kind === "change") for (let k = Math.max(0, i - CONTEXT); k <= Math.min(rows.length - 1, i + CONTEXT); k++) near[k] = true;
+    });
+    const out: DiffRow[] = [];
+    for (let i = 0; i < rows.length; ) {
+      if (near[i]) {
+        out.push(rows[i++]);
+        continue;
+      }
+      let j = i;
+      while (j < rows.length && !near[j]) j++;
+      if (j - i > 2 && !expanded.has(i)) out.push({ kind: "fold", from: i, count: j - i });
+      else out.push(...rows.slice(i, j));
+      i = j;
+    }
+    return out;
+  }, [rows, expanded]);
+  const side = (lines: string[], n: number | undefined, kind: "same" | "change", cls: string) =>
+    n === undefined ? (
+      <>
+        <td className="ln blank" />
+        <td className="code blank" />
+      </>
+    ) : (
+      <>
+        <td className={`ln ${kind === "change" ? cls : ""}`}>{n + 1}</td>
+        <td className={`code ${kind === "change" ? cls : ""}`}>{lines[n] || " "}</td>
+      </>
+    );
+  return (
+    <table className="studio-diff">
+      <colgroup>
+        <col style={{ width: 48 }} />
+        <col />
+        <col style={{ width: 48 }} />
+        <col />
+      </colgroup>
+      <thead>
+        <tr>
+          <th colSpan={2}>{beforeLabel}</th>
+          <th colSpan={2}>{afterLabel}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {visible.map((r, i) =>
+          r.kind === "fold" ? (
+            <tr key={`f${r.from}`} className="fold" onClick={() => setExpanded((s) => new Set(s).add(r.from))}>
+              <td colSpan={4}>⋯ {r.count} unchanged lines</td>
+            </tr>
+          ) : (
+            <tr key={i}>
+              {side(a, r.left, r.kind, "del")}
+              {side(b, r.right, r.kind, "add")}
+            </tr>
+          ),
+        )}
+      </tbody>
+    </table>
   );
 }
 

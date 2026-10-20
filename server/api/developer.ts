@@ -24,7 +24,7 @@ const SNAPSHOT: Record<CodeEntity, (r: any) => Record<string, unknown>> = {
 function recordRevision(entity: CodeEntity, id: number, before: any, after: any, userId: number, note = "Saved") {
   const snap = JSON.stringify(SNAPSHOT[entity](after));
   // Files that existed before history was kept: remember how they looked, so the first save can be undone too
-  if (!get("SELECT 1 FROM revisions WHERE entity = ? AND entity_id = ? LIMIT 1", entity, id)) saveRevision(entity, id, SNAPSHOT[entity](before), null, "Earlier version", before.updated_at);
+  if (!get("SELECT 1 FROM revisions WHERE entity = ? AND entity_id = ? LIMIT 1", entity, id)) saveRevision(entity, id, SNAPSHOT[entity](before), null, "Earlier version", isoTime(before.updated_at));
   const last = get("SELECT id, data, note, user_id, created_at FROM revisions WHERE entity = ? AND entity_id = ? ORDER BY id DESC LIMIT 1", entity, id)!;
   if (last.data === snap) return;
   if (note === "Saved" && last.note === "Saved" && last.user_id === userId && Date.now() - new Date(last.created_at).getTime() <= 120_000) {
@@ -32,7 +32,10 @@ function recordRevision(entity: CodeEntity, id: number, before: any, after: any,
   } else saveRevision(entity, id, JSON.parse(snap), userId, note);
 }
 
-function findRevision(entity: CodeEntity, id: number, revId: string) {
+// SQLite's datetime('now') default has no "T" or zone; revisions store ISO timestamps
+const isoTime = (t: string | null) => (!t ? now() : t.includes("T") ? t : `${t.replace(" ", "T")}Z`);
+
+function findRevision(entity: CodeEntity, id: number, revId: unknown) {
   const rev = get("SELECT * FROM revisions WHERE id = ? AND entity = ? AND entity_id = ?", idParam(revId), entity, id) ?? notFound("Revision");
   return { data: json<any>(rev.data, {}), note: `Restored version from ${String(rev.created_at).slice(0, 16).replace("T", " ")}` };
 }
