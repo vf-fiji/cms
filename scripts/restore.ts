@@ -1,4 +1,4 @@
-// Restores a backup made by `npm run backup`. Stop Reef first; it refuses otherwise.
+// Restores a backup made by `npm run backup`. Stop VodaForge first; it refuses otherwise.
 //
 //   npm run restore -- backups/reef-backup-<timestamp>
 //
@@ -9,7 +9,7 @@ import { restoreBackup } from "../server/backup";
 
 const arg = process.argv[2];
 if (!arg || arg === "--help" || arg === "-h") {
-  console.log("Usage: npm run restore -- <backup folder>\n\nStop Reef first. The current data is moved to <data>/pre-restore-<time>/, not deleted.");
+  console.log("Usage: npm run restore -- <backup folder>\n\nStop VodaForge first. The current data is moved to <data>/pre-restore-<time>/, not deleted.");
   process.exit(arg ? 0 : 2);
 }
 
@@ -21,7 +21,7 @@ try {
   console.log(`Restored ${backupDir}`);
   console.log(`  into      ${dataDir} (${r.uploads} uploaded files)`);
   if (r.previous) console.log(`  previous  data moved to ${r.previous}. Delete it once you're happy with the restore.`);
-  console.log("Start Reef again to use the restored site.");
+  console.log("Start VodaForge again to use the restored site.");
 } catch (e: any) {
   console.error(`Restore failed: ${e?.message ?? e}`);
   process.exit(1);

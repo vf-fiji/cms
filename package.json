@@ -1,9 +1,9 @@
 {
-  "name": "reef-cms",
+  "name": "vodaforge",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Reef CMS: a visual, developer-friendly content management system.",
+  "description": "VodaForge — where digital experiences are built. A visual, developer-friendly content management system.",
   "scripts": {
     "dev": "node --watch-path=server --watch-path=shared --watch-preserve-output --import tsx server/index.ts",
     "start": "cross-env NODE_ENV=production node --import tsx server/index.ts",

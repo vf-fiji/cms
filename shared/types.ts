@@ -306,7 +306,7 @@ export interface SiteSettings {
   require2fa: boolean;
   /** compile Tailwind utilities for classes used on each page */
   tailwindEnabled: boolean;
-  /** include Tailwind's Preflight reset (off by default: it changes Reef's base styles) */
+  /** include Tailwind's Preflight reset (off by default: it changes VodaForge's base styles) */
   tailwindPreflight: boolean;
   /** extra Tailwind input: @theme, @utility, @custom-variant … */
   tailwindCss: string;

@@ -34,7 +34,7 @@ export interface StartOptions {
   dataDir?: string;
 }
 
-/** Starts a real Reef server (production mode, no Vite) on a free port with a fresh database. */
+/** Starts a real VodaForge server (production mode, no Vite) on a free port with a fresh database. */
 export async function startServer(opts: StartOptions = {}): Promise<TestServer> {
   const port = await freePort();
   const dataDir = opts.dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "reef-api-"));

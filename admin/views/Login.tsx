@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { BrandMark, PRODUCT_NAME, PRODUCT_TAGLINE } from "../components/BrandMark";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -13,12 +14,11 @@ function AuthLayout({ children }: { children: ReactNode }) {
     <div className="login">
       <div className="login-art">
         <div className="row" style={{ gap: 10 }}>
-          <div className="brand-mark">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
-              <path d="M3 16c3-7 6.5-10 9-10s3.5 5 9 5" />
-            </svg>
+          <BrandMark />
+          <div>
+            <strong style={{ fontSize: 17, display: "block" }}>{PRODUCT_NAME}</strong>
+            <span className="login-tagline">{PRODUCT_TAGLINE}</span>
           </div>
-          <strong style={{ fontSize: 17 }}>Reef CMS</strong>
         </div>
         <div>
           <h2>Build beautiful websites without fighting your CMS.</h2>
@@ -118,7 +118,7 @@ export function Login() {
         <form className="login-form" onSubmit={submitCode}>
           <h1>Two-factor sign-in</h1>
           <p className="muted" style={{ marginBottom: 26 }}>
-            {useRecovery ? "Enter one of the recovery codes you saved when you set up two-factor sign-in." : "Open your authenticator app and enter the 6-digit code for Reef."}
+            {useRecovery ? "Enter one of the recovery codes you saved when you set up two-factor sign-in." : "Open your authenticator app and enter the 6-digit code for VodaForge."}
           </p>
           {error && <Alert tone="danger">{error}</Alert>}
           <Field label={useRecovery ? "Recovery code" : "6-digit code"} htmlFor="code">

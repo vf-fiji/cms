@@ -24,7 +24,7 @@ export function smtpTransportFromEnv(env = process.env): MailTransport | null {
   if (!host) return null;
   const port = Number(env.SMTP_PORT) || 587;
   const secure = env.SMTP_SECURE ? /^(1|true|yes)$/i.test(env.SMTP_SECURE) : port === 465;
-  const from = env.SMTP_FROM?.trim() || `Reef CMS <no-reply@${host.replace(/^smtp\./, "")}>`;
+  const from = env.SMTP_FROM?.trim() || `VodaForge <no-reply@${host.replace(/^smtp\./, "")}>`;
   const transporter = nodemailer.createTransport({
     host,
     port,

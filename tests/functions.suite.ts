@@ -101,9 +101,9 @@ describe("the cms API", () => {
   });
 
   it("returns custom status codes and headers with cms.respond", async () => {
-    const fn = addFunction({ name: "respond", kind: "endpoint", route: "teapot", code: `export default ({ cms }) => cms.respond("short and stout", { status: 418, headers: { "X-Reef": "yes" } });` });
+    const fn = addFunction({ name: "respond", kind: "endpoint", route: "teapot", code: `export default ({ cms }) => cms.respond("short and stout", { status: 418, headers: { "X-VodaForge": "yes" } });` });
     const out = await runFunction(fn, {});
-    assert.deepEqual(unwrap((out as any).result), { status: 418, headers: { "X-Reef": "yes" }, body: "short and stout" });
+    assert.deepEqual(unwrap((out as any).result), { status: 418, headers: { "X-VodaForge": "yes" }, body: "short and stout" });
   });
 
   it("invokes endpoints by route and records logs and status", async () => {

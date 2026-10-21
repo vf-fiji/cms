@@ -8,7 +8,7 @@ export function RecoveryCodes({ codes, onDone, doneLabel = "I've saved these cod
   const text = codes.join("\n");
   const download = () => {
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([`Reef CMS recovery codes\nEach code works once.\n\n${text}\n`], { type: "text/plain" }));
+    a.href = URL.createObjectURL(new Blob([`VodaForge recovery codes\nEach code works once.\n\n${text}\n`], { type: "text/plain" }));
     a.download = "reef-recovery-codes.txt";
     a.click();
     URL.revokeObjectURL(a.href);
@@ -66,7 +66,7 @@ export function TwoFactorSetup({ onDone, onCancel }: { onDone: () => void; onCan
         <li>Enter the 6-digit code the app shows.</li>
       </ol>
       <div className="twofa-qr">
-        {setup ? <img src={setup.qr} alt="QR code to add Reef to your authenticator app" width={180} height={180} /> : <div className="skeleton" style={{ width: 180, height: 180 }} />}
+        {setup ? <img src={setup.qr} alt="QR code to add VodaForge to your authenticator app" width={180} height={180} /> : <div className="skeleton" style={{ width: 180, height: 180 }} />}
         <div className="col" style={{ gap: 6, minWidth: 0 }}>
           <span className="subtle" style={{ fontSize: 12.5 }}>Can't scan? Enter this key:</span>
           <code className="mono twofa-key">{setup?.secret.replace(/(.{4})/g, "$1 ").trim() ?? "…"}</code>

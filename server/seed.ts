@@ -250,13 +250,13 @@ export function seedIfEmpty() {
     saveSettings({
       ...DEFAULT_SETTINGS,
       siteName: "Coral Coast",
-      tagline: "A demo site built with Reef CMS",
+      tagline: "A demo site built with VodaForge",
       socialLinks: [
         { label: "Instagram", url: "https://instagram.com" },
         { label: "LinkedIn", url: "https://linkedin.com" },
       ],
       footerText: "© {{ 'now' | date: '%Y' }} Coral Coast. Sample content for demonstration.",
-      defaultMetaDescription: "A demonstration website managed with Reef CMS.",
+      defaultMetaDescription: "A demonstration website managed with VodaForge.",
     });
 
     const tplId = run(
@@ -347,7 +347,7 @@ export function seedIfEmpty() {
 
     const day = (n: number) => new Date(Date.now() - n * 864e5).toISOString();
     const news = [
-      ["Welcome to your new website", "A quick tour of what you can do with Reef CMS, from drag-and-drop pages to server functions.", 0, ["Announcements", "Guide"]],
+      ["Welcome to your new website", "A quick tour of what you can do with VodaForge, from drag-and-drop pages to server functions.", 0, ["Announcements", "Guide"]],
       ["Five tips for writing great page titles", "Short, specific titles help visitors and search engines. Here's a checklist we use.", 1, ["Guide", "SEO"]],
       ["Our community day is coming up", "Join us for a day of workshops, food and conversation. Everyone is welcome.", 2, ["Community"]],
       ["Designing for mobile first", "Most visitors arrive on a phone. Preview every page at phone width before you publish.", 3, ["Design"]],
@@ -363,8 +363,8 @@ export function seedIfEmpty() {
         JSON.stringify({
           summary,
           image: art[i % art.length],
-          body: `<p>${summary}</p><h2>What's next</h2><p>This is sample content created when Reef CMS was installed. Edit it in <strong>Content → News</strong>, or delete it when you're ready to add your own.</p><ul><li>Edit text with the rich text editor</li><li>Add a featured image from the media library</li><li>Tag articles so lists can filter them</li></ul>`,
-          author: "Reef Team",
+          body: `<p>${summary}</p><h2>What's next</h2><p>This is sample content created when VodaForge was installed. Edit it in <strong>Content → News</strong>, or delete it when you're ready to add your own.</p><ul><li>Edit text with the rich text editor</li><li>Add a featured image from the media library</li><li>Tag articles so lists can filter them</li></ul>`,
+          author: "VodaForge Team",
           featured: i < 3,
         }),
         "published",
@@ -706,7 +706,7 @@ export default async ({ cms }) => {
       "home",
       1,
       [
-        sec([12], [[W("hero", { eyebrow: "Reef CMS demo", title: "A website your whole team can actually edit", subtitle: "Drag-and-drop pages, structured content and a full code studio — all in one calm, fast workspace.", image: art[0], overlay: 30, ctaLabel: "Read the news", ctaUrl: "/news", cta2Label: "Contact us", cta2Url: "/contact", height: "lg" })]], { paddingY: "none", width: "full", gap: "none" }),
+        sec([12], [[W("hero", { eyebrow: "VodaForge demo", title: "A website your whole team can actually edit", subtitle: "Drag-and-drop pages, structured content and a full code studio — all in one calm, fast workspace.", image: art[0], overlay: 30, ctaLabel: "Read the news", ctaUrl: "/news", cta2Label: "Contact us", cta2Url: "/contact", height: "lg" })]], { paddingY: "none", width: "full", gap: "none" }),
         sec([12], [[W("stats", { items: [{ value: "6", label: "Sample articles" }, { value: "18", label: "Built-in widgets" }, { value: "∞", label: "Custom widgets" }, { value: "0", label: "Deploys needed to change code" }] })]], { paddingY: "md" }),
         sec([12], [[W("heading", { eyebrow: "What you get", text: "Everything Sitefinity does, without the friction", align: "center", level: "h2" }), W("features", { columns: "3", align: "left", items: [
           { icon: "🧱", title: "Visual page builder", text: "Drag widgets into flexible column layouts and see the real page as you edit." },
@@ -725,7 +725,7 @@ export default async ({ cms }) => {
         ] })]], { background: "subtle" }),
         sec([12], [[W("heading", { text: "Stay in the loop", level: "h2", align: "center" }), W("form", { formKey: "newsletter" })]], { background: "dark", width: "narrow" }),
       ],
-      { home: true, seo: { metaDescription: "A demonstration website managed with Reef CMS." } },
+      { home: true, seo: { metaDescription: "A demonstration website managed with VodaForge." } },
     );
     const aboutId = page("About", "about", 2, [
       sec([12], [[W("heading", { eyebrow: "About us", text: "We help people find what they need, fast", level: "h1" }), W("text", { html: "<p>This is a sample About page. Open it in the page editor to see how sections, columns and widgets fit together.</p>", size: "lg" })]], { width: "narrow", paddingY: "xl" }),
@@ -747,7 +747,7 @@ export default async ({ cms }) => {
 
   const credFile = path.join(DATA_DIR, "admin-credentials.txt");
   if (!process.env.REEF_ADMIN_PASSWORD) {
-    fs.writeFileSync(credFile, `Reef CMS initial administrator\nEmail: ${email}\nPassword: ${password}\n\nChange this password after signing in (avatar menu → Account), then delete this file.\n`, { mode: 0o600 });
+    fs.writeFileSync(credFile, `VodaForge initial administrator\nEmail: ${email}\nPassword: ${password}\n\nChange this password after signing in (avatar menu → Account), then delete this file.\n`, { mode: 0o600 });
     console.log(`[seed] Admin sign-in details written to ${credFile}`);
   }
 }

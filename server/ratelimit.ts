@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { HttpError } from "./auth";
 
-// Fixed-window, in-memory rate limits. Good enough for a single Reef process; put a
+// Fixed-window, in-memory rate limits. Good enough for a single VodaForge process; put a
 // shared limiter (or the reverse proxy's) in front if you run several instances.
 // Keys use req.ip, so set REEF_TRUST_PROXY correctly behind a proxy or every visitor
 // shares the proxy's address.

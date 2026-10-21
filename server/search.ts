@@ -1,6 +1,6 @@
 // Full-text search over published pages and content items (SQLite FTS5).
 // The index is rebuilt lazily: publishing anything marks it stale, and the
-// next search rebuilds it. That stays fast for the sites Reef is meant for.
+// next search rebuilds it. That stays fast for the sites VodaForge is meant for.
 import { all, db, json } from "./db";
 import { computePaths, type PageSnapshot } from "./render/site";
 import { itemUrl, mapType } from "./content";

@@ -318,13 +318,13 @@ export function slugify(s: string): string {
 // ---------- settings ----------
 import type { SiteSettings } from "../shared/types";
 export const DEFAULT_SETTINGS: SiteSettings = {
-  siteName: "My Reef Site",
-  tagline: "Built with Reef CMS",
+  siteName: "My VodaForge Site",
+  tagline: "Built with VodaForge",
   logo: "",
   favicon: "",
   primaryColor: "#e60000",
   accentColor: "#820000",
-  footerText: "© {{ 'now' | date: '%Y' }} My Reef Site. All rights reserved.",
+  footerText: "© {{ 'now' | date: '%Y' }} My VodaForge Site. All rights reserved.",
   robotsTxt: "User-agent: *\nAllow: /\n",
   sitemapEnabled: true,
   headlessApiEnabled: true,

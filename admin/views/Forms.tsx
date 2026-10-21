@@ -305,7 +305,7 @@ export function FormBuilder() {
           <Field label="Notification email" help="Each response is emailed here as it arrives. Separate several addresses with commas. Needs SMTP set up on the server.">
             <input className="input" type="text" inputMode="email" autoComplete="off" placeholder="team@example.com, sales@example.com" value={form.settings.notifyEmail ?? ""} onChange={(e) => set({ settings: { ...form.settings, notifyEmail: e.target.value } })} />
           </Field>
-          <Switch checked={form.settings.storeSubmissions} onChange={(v) => set({ settings: { ...form.settings, storeSubmissions: v } })} label="Store responses in Reef" />
+          <Switch checked={form.settings.storeSubmissions} onChange={(v) => set({ settings: { ...form.settings, storeSubmissions: v } })} label="Store responses in VodaForge" />
           <div className="divider" />
           <div className="section-title">Use this form</div>
           <div className="muted" style={{ fontSize: 13 }}>

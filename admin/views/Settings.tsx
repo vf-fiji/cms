@@ -145,7 +145,7 @@ export function Settings() {
             <Field label="Tailwind CSS" help="Use Tailwind utility classes anywhere: Code blocks, custom widgets (Liquid or React), templates and each block's CSS classes field. Only the classes a page uses are generated.">
               <Switch checked={s.tailwindEnabled} onChange={(v) => set({ tailwindEnabled: v })} label={s.tailwindEnabled ? "On — Tailwind v4" : "Off"} />
             </Field>
-            <Field label="Preflight (CSS reset)" help="Tailwind's base reset. Leave off to keep Reef's typography and widget styles; turn on if you build pages entirely with Tailwind.">
+            <Field label="Preflight (CSS reset)" help="Tailwind's base reset. Leave off to keep VodaForge's typography and widget styles; turn on if you build pages entirely with Tailwind.">
               <Switch checked={s.tailwindPreflight} disabled={!s.tailwindEnabled} onChange={(v) => set({ tailwindPreflight: v })} label={s.tailwindPreflight ? "Included" : "Not included"} />
             </Field>
           </div>
@@ -207,7 +207,7 @@ export default function Badge({ label }) {
             </table>
           </div>
           <div className="card card-pad">
-            <div className="section-title">Use Reef from a React or Next.js app</div>
+            <div className="section-title">Use VodaForge from a React or Next.js app</div>
             <pre className="mono" style={{ margin: 0, padding: 14, borderRadius: 10, background: "#1e1e1e", color: "#d4d4d4", fontSize: 12.5, overflowX: "auto" }}>{`// Any React app (Vite, Next.js, Remix…)
 const REEF = "${location.origin}";
 
@@ -221,7 +221,7 @@ export function NewsList({ items }) {
   return items.map((n) => <a key={n.id} href={n.url}>{n.title}</a>);
 }`}</pre>
             <div className="muted" style={{ fontSize: 13, marginTop: 10 }}>
-              Prefer building inside Reef? Write React components as <strong>custom widgets</strong> in Code Studio (server-rendered and hydrated), or drop a <strong>React block</strong> onto any page.
+              Prefer building inside VodaForge? Write React components as <strong>custom widgets</strong> in Code Studio (server-rendered and hydrated), or drop a <strong>React block</strong> onto any page.
             </div>
           </div>
         </div>
@@ -295,7 +295,7 @@ function SystemHealth() {
         {b && !b.ok && <div className="alert alert-danger" style={{ marginBottom: 12 }}><Icon name="CircleAlert" size={16} /> <span><strong>{b.stage}</strong>: {b.error}</span></div>}
         <dl className="health-list">
           <dt>Schedule</dt>
-          <dd>{data.backupSchedule.length ? `Daily at ${data.backupSchedule.join(", ")} (server time)` : <>Not scheduled in Reef. Set <code>REEF_BACKUP_AT</code> (e.g. <code>03:15</code>) or run <code>npm run backup</code> from cron.</>}</dd>
+          <dd>{data.backupSchedule.length ? `Daily at ${data.backupSchedule.join(", ")} (server time)` : <>Not scheduled in VodaForge. Set <code>REEF_BACKUP_AT</code> (e.g. <code>03:15</code>) or run <code>npm run backup</code> from cron.</>}</dd>
           <dt>Off-site copy</dt>
           <dd>{data.offsiteConfigured ? "Runs REEF_BACKUP_AFTER after each backup" : <>Not set up. Set <code>REEF_BACKUP_AFTER</code> to a command that copies <code>$REEF_BACKUP_PATH</code> off this server.</>}</dd>
           {b?.ok && (

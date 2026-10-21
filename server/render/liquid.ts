@@ -5,7 +5,7 @@ import { mediaUrl } from "../media";
 import { bestVariant, srcsetFor } from "../images";
 
 /**
- * HTML that's safe to print as-is: page content Reef rendered, and rich text it has cleaned.
+ * HTML that's safe to print as-is: page content VodaForge rendered, and rich text it has cleaned.
  * Everything else printed with {{ }} is escaped, so a title like <script> shows as text.
  * Developers can still print trusted HTML with {{ value | raw }}.
  */

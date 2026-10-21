@@ -128,7 +128,7 @@ core.post("/auth/2fa/setup", async (req, res) => {
   if (u.totp_enabled) throw new HttpError(400, "Two-factor sign-in is already on.");
   const secret = newSecret();
   run("UPDATE users SET totp_pending = ? WHERE id = ?", secret, req.user!.id);
-  const url = otpauthUrl(secret, req.user!.email, getSettings().siteName || "Reef CMS");
+  const url = otpauthUrl(secret, req.user!.email, getSettings().siteName || "VodaForge");
   res.json({ secret, otpauthUrl: url, qr: await QRCode.toDataURL(url, { margin: 1, width: 220 }) });
 });
 

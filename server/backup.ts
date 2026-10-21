@@ -6,7 +6,7 @@ import path from "node:path";
 // must not run migrations or seed data, and backups open the live database read-only.
 
 export interface BackupOptions {
-  /** The Reef data folder (holds reef.db and uploads/). */
+  /** The VodaForge data folder (holds reef.db and uploads/). */
   dataDir: string;
   /** Where backup folders are created. */
   outDir: string;
@@ -25,7 +25,7 @@ const PREFIX = "reef-backup-";
 
 export function createBackup({ dataDir, outDir, keep = 0 }: BackupOptions): BackupResult {
   const source = path.join(dataDir, "reef.db");
-  if (!fs.existsSync(source)) throw new Error(`No Reef database at ${source}. Set REEF_DATA_DIR to your data folder.`);
+  if (!fs.existsSync(source)) throw new Error(`No VodaForge database at ${source}. Set REEF_DATA_DIR to your data folder.`);
   fs.mkdirSync(outDir, { recursive: true });
 
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -37,7 +37,7 @@ export function createBackup({ dataDir, outDir, keep = 0 }: BackupOptions): Back
   fs.mkdirSync(workDir);
 
   try {
-    // 1. Database: VACUUM INTO writes a consistent, compacted snapshot while Reef keeps running.
+    // 1. Database: VACUUM INTO writes a consistent, compacted snapshot while VodaForge keeps running.
     const dbFile = path.join(workDir, "reef.db");
     const live = new DatabaseSync(source, { readOnly: true });
     try {
@@ -91,7 +91,7 @@ export function listBackups(outDir: string): string[] {
 }
 
 /**
- * True while another process (a running Reef) has the database open. A WAL-mode
+ * True while another process (a running VodaForge) has the database open. A WAL-mode
  * connection holds a shared lock for its whole life, so an exclusive lock fails.
  */
 export function isDatabaseInUse(file: string): boolean {
@@ -115,13 +115,13 @@ export interface RestoreResult {
 }
 
 /**
- * Replaces the database and uploads in dataDir with a backup. Refuses while Reef is
+ * Replaces the database and uploads in dataDir with a backup. Refuses while VodaForge is
  * running. Nothing is deleted: the current files are moved to dataDir/pre-restore-<time>/.
  */
 export function restoreBackup({ backupDir, dataDir }: { backupDir: string; dataDir: string }): RestoreResult {
   const source = path.join(backupDir, "reef.db");
   if (!fs.existsSync(path.join(backupDir, "manifest.json")) || !fs.existsSync(source)) {
-    throw new Error(`${backupDir} isn't a complete Reef backup (it needs reef.db and manifest.json).`);
+    throw new Error(`${backupDir} isn't a complete VodaForge backup (it needs reef.db and manifest.json).`);
   }
   const check = new DatabaseSync(source, { readOnly: true });
   try {
@@ -132,7 +132,7 @@ export function restoreBackup({ backupDir, dataDir }: { backupDir: string; dataD
   }
 
   const live = path.join(dataDir, "reef.db");
-  if (isDatabaseInUse(live)) throw new Error("Reef is still running and using this database. Stop it, then run the restore again.");
+  if (isDatabaseInUse(live)) throw new Error("VodaForge is still running and using this database. Stop it, then run the restore again.");
 
   fs.mkdirSync(dataDir, { recursive: true });
   const replaced = ["reef.db", "reef.db-wal", "reef.db-shm", "uploads"].filter((n) => fs.existsSync(path.join(dataDir, n)));

@@ -153,7 +153,7 @@ async function start() {
   app.get(/.*/, async (req, res) => {
     const result = await renderPublicPath(decodeURIComponent(req.path), req.query as Record<string, string>);
     if (result.redirect) return res.redirect(result.status, result.redirect);
-    res.setHeader("X-Reef-Cache", result.cached ? "hit" : "miss");
+    res.setHeader("X-VodaForge-Cache", result.cached ? "hit" : "miss");
     res.status(result.status).type("html").send(result.html);
   });
 
@@ -188,7 +188,7 @@ async function start() {
   });
 
   server.listen(PORT, HOST, () => {
-    console.log(`\n  Reef CMS is running`);
+    console.log(`\n  VodaForge is running — where digital experiences are built`);
     console.log(`  Website:  http://${HOST}:${PORT}/`);
     console.log(`  Admin:    http://${HOST}:${PORT}/admin`);
     console.log(`  Email:    ${getMailTransport().describe}\n`);

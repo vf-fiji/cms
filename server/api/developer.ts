@@ -230,7 +230,7 @@ const STARTER_CODE: Record<string, string> = {
 export default async ({ request, cms }) => {
   const latest = cms.content.list("news", { limit: 3 });
   return {
-    message: "Hello from Reef!",
+    message: "Hello from VodaForge!",
     you: request.query.name ?? "stranger",
     latest: latest.map((n) => n.title),
   };

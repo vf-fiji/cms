@@ -58,7 +58,7 @@ function sendResetLink(req: Request, email: string) {
   }
   const token = createResetToken(user.id);
   const link = `${base}/admin/reset-password#token=${token}`;
-  const site = getSettings().siteName || "Reef CMS";
+  const site = getSettings().siteName || "VodaForge";
   const text = [
     `Hi ${user.name},`,
     "",

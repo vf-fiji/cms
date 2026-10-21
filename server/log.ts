@@ -70,7 +70,7 @@ export function sendAlert(title: string, detail = "", extra: Record<string, unkn
   const url = process.env.REEF_ALERT_WEBHOOK;
   if (!url) return Promise.resolve();
   const site = process.env.REEF_PUBLIC_URL || os.hostname();
-  const text = `Reef CMS (${site}): ${title}${detail ? `\n${detail.slice(0, 1500)}` : ""}`;
+  const text = `VodaForge (${site}): ${title}${detail ? `\n${detail.slice(0, 1500)}` : ""}`;
   const p = fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

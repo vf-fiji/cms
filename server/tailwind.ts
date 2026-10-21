@@ -10,9 +10,9 @@ import type { SiteSettings } from "../shared/types";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * Cascade layers, lowest priority first. Reef's own site.css lives in `reef`,
+ * Cascade layers, lowest priority first. VodaForge's own site.css lives in `reef`,
  * above Tailwind's preflight (`base`) and below `utilities`, so utility classes
- * override Reef defaults. Template and page CSS stay unlayered and win over both.
+ * override VodaForge defaults. Template and page CSS stay unlayered and win over both.
  * This statement must come before any stylesheet that declares layers.
  */
 export const LAYER_ORDER = "@layer theme, base, reef, components, utilities;";

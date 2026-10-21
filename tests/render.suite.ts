@@ -133,7 +133,7 @@ describe("Liquid", () => {
     assert.match(await renderLiquid("{% if %}", {}), /Template error/);
   });
 
-  it("escapes output by default, except HTML Reef rendered or cleaned", async () => {
+  it("escapes output by default, except HTML VodaForge rendered or cleaned", async () => {
     assert.equal(await renderLiquid("{{ t }}", { t: "<img src=x onerror=alert(1)>" }), "&lt;img src=x onerror=alert(1)&gt;");
     assert.equal(await renderLiquid("{{ t | raw }}", { t: "<b>trusted</b>" }), "<b>trusted</b>");
   });

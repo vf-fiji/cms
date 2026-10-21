@@ -89,7 +89,7 @@ export async function cachedRender(
 ): Promise<{ status: number; html?: string; redirect?: string; cached?: boolean }> {
   if (!TTL_MS) return render();
   const key = keyFor(path, query);
-  // Only the parameters Reef's own widgets read (search and pagination) make separate copies;
+  // Only the parameters VodaForge's own widgets read (search and pagination) make separate copies;
   // any other query string is rendered fresh, so made-up parameters can't push real pages out.
   if (key.length > 1024 || !Object.keys(query).every((k) => CACHED_PARAMS.has(k))) return render();
   const version = cacheVersion();

@@ -106,7 +106,7 @@ describe("createBackup", () => {
   });
 
   it("explains a missing database", () => {
-    assert.throws(() => createBackup({ dataDir: tmp("reef-empty-"), outDir: tmp("reef-bk-") }), /No Reef database/);
+    assert.throws(() => createBackup({ dataDir: tmp("reef-empty-"), outDir: tmp("reef-bk-") }), /No VodaForge database/);
   });
 });
 
@@ -201,7 +201,7 @@ describe("over HTTP", () => {
       env: {
         SMTP_HOST: "127.0.0.1",
         SMTP_PORT: String(smtp.port),
-        SMTP_FROM: "Reef Test <reef@test.local>",
+        SMTP_FROM: "VodaForge Test <reef@test.local>",
         REEF_RATE_LIMIT_FORMS: "3",
         REEF_RATE_LIMIT_FN: "4",
         REEF_RATE_LIMIT_RESET: "50",

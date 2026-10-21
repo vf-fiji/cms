@@ -1,5 +1,5 @@
 // React support: JSX widgets compiled by esbuild, optionally server-rendered,
-// then hydrated in the browser with a shared React runtime served by Reef.
+// then hydrated in the browser with a shared React runtime served by VodaForge.
 import { build, transform } from "esbuild";
 import crypto from "node:crypto";
 import vm from "node:vm";
@@ -31,7 +31,7 @@ export const jsxDEV = J.jsx;
 export const { createRoot, hydrateRoot } = C;
 export const { createPortal, flushSync } = D;
 
-class ReefBoundary extends R.Component {
+class VodaForgeBoundary extends R.Component {
   constructor(p) { super(p); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
   render() {
@@ -47,7 +47,7 @@ function mountOne(id) {
   if (!Comp || !el) return;
   let props = {};
   try { props = JSON.parse(el.getAttribute("data-props") || "{}"); } catch (e) {}
-  const node = R.createElement(ReefBoundary, null, R.createElement(Comp, props));
+  const node = R.createElement(VodaForgeBoundary, null, R.createElement(Comp, props));
   const existing = roots.get(el);
   if (existing) return existing.render(node);
   const editing = document.body.classList.contains("rf-editing");
@@ -80,7 +80,7 @@ export function reactRuntime(): Promise<string> {
 const browserModules = new Map<string, string>(); // hash -> ESM source
 const hashOf = (s: string) => crypto.createHash("sha1").update(s).digest("hex").slice(0, 16);
 
-/** Bare imports other than React resolve through esm.sh, sharing Reef's React. */
+/** Bare imports other than React resolve through esm.sh, sharing VodaForge's React. */
 function rewriteBareImports(code: string) {
   return code.replace(/(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(["'])([^"'./][^"']*)\2/g, (m, pre, q, spec) => {
     if (REACT_SPECIFIERS.includes(spec) || /^(https?:|data:)/.test(spec)) return m;

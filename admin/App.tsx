@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { BrandMark } from "./components/BrandMark";
 import { createBrowserRouter, Navigate, NavLink, Route, RouterProvider, Routes, useLocation, useNavigate, useRouteError } from "react-router-dom";
 import { AuthProvider, useAuth, bus } from "./lib/auth";
 import { Icon } from "./lib/icons";
@@ -82,7 +83,7 @@ function RouteError() {
           <div className="empty-icon">
             <Icon name={chunk ? "RotateCcw" : "CircleAlert"} size={24} />
           </div>
-          <div className="empty-title">{chunk ? "Reef was updated" : "Something went wrong on this screen"}</div>
+          <div className="empty-title">{chunk ? "VodaForge was updated" : "Something went wrong on this screen"}</div>
           <p>{chunk ? "Part of the app changed while it was open. Reload to get the latest version." : "Your work is saved. Reload to try again; if it keeps happening, the details below will help a developer."}</p>
           {!chunk && error?.message && <pre className="mono subtle" style={{ whiteSpace: "pre-wrap", fontSize: 12, maxWidth: "100%" }}>{error.message}</pre>}
           <button className="btn btn-primary" onClick={() => window.location.reload()}>Reload</button>
@@ -116,7 +117,7 @@ function Gate() {
       /* ignore */
     }
   }, [user]);
-  if (!ready) return <Spinner label="Starting Reef…" />;
+  if (!ready) return <Spinner label="Starting VodaForge…" />;
   // Password recovery works whether or not someone is signed in on this browser.
   if (loc.pathname === "/forgot-password") return <ForgotPassword />;
   if (loc.pathname === "/reset-password") return <ResetPassword />;
@@ -181,7 +182,7 @@ function Shell() {
           <button className="btn btn-ghost btn-icon" onClick={() => setMobileNav(true)} aria-label="Open navigation">
             <Icon name="Menu" />
           </button>
-          <strong>Reef</strong>
+          <strong>VodaForge</strong>
         </div>
         <Suspense fallback={<Spinner />}>
           <Routes>
@@ -261,13 +262,9 @@ function Sidebar({ open, onSearch }: { open: boolean; onSearch: () => void }) {
   return (
     <aside className={`sidebar ${open ? "open" : ""}`}>
       <div className="brand">
-        <div className="brand-mark">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
-            <path d="M3 16c3-7 6.5-10 9-10s3.5 5 9 5" />
-          </svg>
-        </div>
+        <BrandMark />
         <div className="grow" style={{ minWidth: 0 }}>
-          <div className="brand-name">Reef</div>
+          <div className="brand-name">VodaForge</div>
           <div className="brand-site truncate">{siteName || "Content management"}</div>
         </div>
         <a className="btn btn-ghost btn-icon btn-sm" href="/" target="_blank" rel="noreferrer" title="View live site">

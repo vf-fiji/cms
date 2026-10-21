@@ -1,8 +1,12 @@
-# Reef CMS
+# VodaForge
+
+**Where digital experiences are built.**
 
 A visual, developer-friendly content management system in the spirit of Sitefinity, with a cleaner editing experience and live code editing. Editors build pages by dragging widgets onto a real preview of the site. Developers change templates, CSS, JavaScript, React components and server-side logic from inside the CMS. Nothing needs a rebuild or deploy.
 
-Reef is self-contained in this folder. It does not touch the FNRL application in the parent directory.
+Formerly called Reef CMS. Internal names still use `reef` (the `REEF_*` environment variables, `reef.db`, `/_reef/` asset paths, `rf-` CSS classes and `reef-backup-*` folders), so existing deployments, data and custom code keep working.
+
+VodaForge is self-contained in this folder. It does not touch the FNRL application in the parent directory.
 
 ## Run it
 
@@ -17,7 +21,7 @@ npm run dev
 - Website: http://127.0.0.1:4400/
 - Admin: http://127.0.0.1:4400/admin
 
-On first start Reef creates `data/reef.db`, a demo site, and an administrator account. The sign-in details are written to `data/admin-credentials.txt`. Change the password under **Account** and then delete that file. To choose the credentials yourself, set `REEF_ADMIN_EMAIL` and `REEF_ADMIN_PASSWORD` before the first start.
+On first start VodaForge creates `data/reef.db`, a demo site, and an administrator account. The sign-in details are written to `data/admin-credentials.txt`. Change the password under **Account** and then delete that file. To choose the credentials yourself, set `REEF_ADMIN_EMAIL` and `REEF_ADMIN_PASSWORD` before the first start.
 
 Production:
 
@@ -30,7 +34,7 @@ Forgot your password? Use **Forgot password?** on the sign-in screen. In develop
 
 ## Deploying
 
-Reef is one Node process with a SQLite database and an uploads folder, both in `REEF_DATA_DIR`. Run a single instance (sessions, sign-in throttles and rate limits are per process) behind a reverse proxy that handles TLS.
+VodaForge is one Node process with a SQLite database and an uploads folder, both in `REEF_DATA_DIR`. Run a single instance (sessions, sign-in throttles and rate limits are per process) behind a reverse proxy that handles TLS.
 
 ### Docker
 
@@ -41,7 +45,7 @@ docker compose up -d --build
 docker compose ps         # STATUS should become "healthy"
 ```
 
-- The image builds the admin app (`npm run build`) and runs the production server, which is what `npm start` runs. It starts Node directly rather than through npm so that `docker stop` reaches Reef, which then closes the database cleanly.
+- The image builds the admin app (`npm run build`) and runs the production server, which is what `npm start` runs. It starts Node directly rather than through npm so that `docker stop` reaches VodaForge, which then closes the database cleanly.
 - `compose.yaml` keeps data in two named volumes: `reef-data` mounted at `/data` (database and uploads) and `reef-backups` at `/backups`. It publishes the app only on `127.0.0.1:4400` (change with `REEF_HOST_PORT`), so it's reachable from your reverse proxy on the same host and not from the internet.
 - The healthcheck calls `GET /api/health`, which also queries the database.
 - First sign-in: set `REEF_ADMIN_EMAIL`/`REEF_ADMIN_PASSWORD` in `.env` before the first start, or read the generated details with `docker compose exec reef cat /data/admin-credentials.txt`. Then change the password and delete the file (`docker compose exec reef rm /data/admin-credentials.txt`).
@@ -51,7 +55,7 @@ Without Docker, use Node 22.5 or later (Node 26 is tested), `npm ci && npm run b
 
 ### Behind a TLS reverse proxy
 
-In production, session cookies are `Secure`, so the admin only works over HTTPS. Browsers make one exception for `http://localhost`. Point your proxy at Reef and forward the usual headers.
+In production, session cookies are `Secure`, so the admin only works over HTTPS. Browsers make one exception for `http://localhost`. Point your proxy at VodaForge and forward the usual headers.
 
 Caddy (gets certificates automatically and sends `X-Forwarded-*` by default):
 
@@ -86,12 +90,12 @@ server {
 }
 ```
 
-**`REEF_TRUST_PROXY`** decides which proxies Reef believes about the visitor's real IP address and protocol. It matters because sign-in throttling and rate limits count requests per IP. If the proxy isn't trusted, every visitor shares the proxy's address and one busy visitor can lock everyone out. If too much is trusted, visitors can fake their address with an `X-Forwarded-For` header and get around the limits.
+**`REEF_TRUST_PROXY`** decides which proxies VodaForge believes about the visitor's real IP address and protocol. It matters because sign-in throttling and rate limits count requests per IP. If the proxy isn't trusted, every visitor shares the proxy's address and one busy visitor can lock everyone out. If too much is trusted, visitors can fake their address with an `X-Forwarded-For` header and get around the limits.
 
 | Setup | Value |
 |---|---|
-| Proxy on the same machine, Reef run with `npm start` | leave unset (default `loopback`) |
-| Proxy on the host, Reef in Docker via `compose.yaml` | leave unset (compose sets `loopback, uniquelocal`) |
+| Proxy on the same machine, VodaForge run with `npm start` | leave unset (default `loopback`) |
+| Proxy on the host, VodaForge in Docker via `compose.yaml` | leave unset (compose sets `loopback, uniquelocal`) |
 | Proxy on another machine | its address or subnet, e.g. `10.0.0.5` or `10.0.0.0/24` |
 | A CDN in front of your proxy | the number of hops, e.g. `2`, or the CDN's address ranges |
 | No proxy at all | `false` |
@@ -111,7 +115,7 @@ The value is passed to Express's [`trust proxy`](https://expressjs.com/en/guide/
 | `REEF_RESET_TTL_MINUTES` | `60` | How long a reset link works. |
 | `REEF_RATE_LIMIT_FORMS` / `REEF_RATE_LIMIT_FN` / `REEF_RATE_LIMIT_RESET` / `REEF_RATE_LIMIT_SEARCH` | `10` / `120` / `5` / `60` | See [Rate limits](#rate-limits). `0` turns a limit off. |
 | `REEF_BACKUP_DIR` / `REEF_BACKUP_KEEP` | `./backups` / keep all | See [Backups and restore](#backups-and-restore). `/backups` in Docker. |
-| `REEF_BACKUP_AT` | (none) | Daily backup time(s) run by Reef itself, e.g. `03:15` or `03:15,15:15` (server time). |
+| `REEF_BACKUP_AT` | (none) | Daily backup time(s) run by VodaForge itself, e.g. `03:15` or `03:15,15:15` (server time). |
 | `REEF_BACKUP_AFTER` | (none) | Command run after each backup to copy it off-site. The new folder is in `$REEF_BACKUP_PATH`. |
 | `REEF_ALERT_WEBHOOK` | (none) | Slack, Teams, Discord or custom webhook for errors, crashes and failed backups. See [Monitoring](#monitoring-and-alerts). |
 | `REEF_LOG_KEEP_DAYS` | `14` | How long `data/logs/errors-*.jsonl` files are kept. |
@@ -125,19 +129,19 @@ The value is passed to Express's [`trust proxy`](https://expressjs.com/en/guide/
 ```sh
 npm run backup                                  # → backups/reef-backup-<timestamp>/
 npm run backup -- --out /mnt/nas/reef --keep 14 # keep only the newest 14 there
-npm run restore -- backups/reef-backup-<timestamp>   # Reef must be stopped; see below
+npm run restore -- backups/reef-backup-<timestamp>   # VodaForge must be stopped; see below
 docker compose exec reef npm run backup         # in Docker → the reef-backups volume
 ```
 
 Each backup folder holds:
 
-- `reef.db`: a consistent snapshot made with SQLite's `VACUUM INTO`. It's safe to run while Reef is serving and editing, and it's checked with `PRAGMA integrity_check` before it counts as done.
+- `reef.db`: a consistent snapshot made with SQLite's `VACUUM INTO`. It's safe to run while VodaForge is serving and editing, and it's checked with `PRAGMA integrity_check` before it counts as done.
 - `uploads/`: a copy of every uploaded file, made after the snapshot so every file the snapshot refers to is included.
 - `manifest.json`: time, sizes and the integrity result.
 
 A half-finished backup is named `*.partial` and removed if it fails, so any `reef-backup-*` folder with a `manifest.json` is complete. Backups contain password hashes and form responses, so store them as carefully as the server.
 
-**Schedule it and copy it off the machine.** Reef can do both itself:
+**Schedule it and copy it off the machine.** VodaForge can do both itself:
 
 ```sh
 REEF_BACKUP_AT=03:15
@@ -147,7 +151,7 @@ REEF_BACKUP_AFTER='rclone copy "$REEF_BACKUP_PATH" offsite:reef/"$REEF_BACKUP_NA
 # or: aws s3 sync "$REEF_BACKUP_PATH" "s3://my-bucket/reef/$REEF_BACKUP_NAME"
 ```
 
-In Docker the command runs inside the container, so add the tool it needs (e.g. `rclone`) in an image built `FROM reef-cms`, or write the backups volume to a mounted network share instead. Scheduled backups run in a separate process, so they never slow the site down. If the backup or the off-site command fails, it's logged, sent to `REEF_ALERT_WEBHOOK`, and shown on **Settings → System health**, which also has a **Back up now** button. `npm run backup` exits with code 1 if the backup fails and 3 if only the off-site copy fails. If you prefer host cron, that still works:
+In Docker the command runs inside the container, so add the tool it needs (e.g. `rclone`) in an image built `FROM vodaforge`, or write the backups volume to a mounted network share instead. Scheduled backups run in a separate process, so they never slow the site down. If the backup or the off-site command fails, it's logged, sent to `REEF_ALERT_WEBHOOK`, and shown on **Settings → System health**, which also has a **Back up now** button. `npm run backup` exits with code 1 if the backup fails and 3 if only the off-site copy fails. If you prefer host cron, that still works:
 
 ```cron
 15 3 * * *  cd /srv/reef/cms && docker compose exec -T reef npm run backup --silent -- --keep 14
@@ -155,14 +159,14 @@ In Docker the command runs inside the container, so add the tool it needs (e.g. 
 
 ### Restore
 
-Restoring replaces the whole site, including users and passwords, with the backup's contents. `npm run restore` refuses to run while Reef has the database open, and it never deletes anything: the current database and uploads are moved to `data/pre-restore-<time>/` first.
+Restoring replaces the whole site, including users and passwords, with the backup's contents. `npm run restore` refuses to run while VodaForge has the database open, and it never deletes anything: the current database and uploads are moved to `data/pre-restore-<time>/` first.
 
 **Without Docker**
 
 ```sh
-# 1. stop Reef (systemctl stop reef, or Ctrl+C on npm start)
+# 1. stop VodaForge (systemctl stop reef, or Ctrl+C on npm start)
 npm run restore -- backups/reef-backup-2026-10-21T03-15-00-000Z
-# 2. start Reef again (npm start)
+# 2. start VodaForge again (npm start)
 ```
 
 **With Docker Compose**
@@ -179,15 +183,15 @@ To restore a copy kept outside the server, copy it into the volume first: `docke
 After the restore:
 
 - Sign in and check the site. Sessions and passwords are as they were at backup time. Anyone who signed in or changed their password since then must sign in again with their old password, or use **Forgot password?**.
-- When you're satisfied, delete the `pre-restore-*` folder inside the data folder. In Docker: `docker compose exec reef ls /data`, then remove it the same way. To undo the restore instead, stop Reef and restore from that folder's files.
+- When you're satisfied, delete the `pre-restore-*` folder inside the data folder. In Docker: `docker compose exec reef ls /data`, then remove it the same way. To undo the restore instead, stop VodaForge and restore from that folder's files.
 
-You can also restore by hand. With Reef stopped, copy the backup's `reef.db` and `uploads/` into an empty data folder. Don't leave old `reef.db-wal` or `reef.db-shm` files next to the restored database, because they belong to the old one.
+You can also restore by hand. With VodaForge stopped, copy the backup's `reef.db` and `uploads/` into an empty data folder. Don't leave old `reef.db-wal` or `reef.db-shm` files next to the restored database, because they belong to the old one.
 
 The test suite backs up a running server with `npm run backup`, checks that `npm run restore` refuses while a server is using the target folder, restores into it, and checks that pages, the reset password and media come back.
 
 ## Performance
 
-Public pages are cached in memory after their first render. SQLite triggers bump a version number on every write to anything a page is built from (pages, content, templates, widgets, media, forms, settings…), so a publish or edit shows on the next request, including changes made by server functions or another process. Saving a draft doesn't clear the cache. Pages that call a server function (the Liquid `fn` filter) are never cached. The `X-Reef-Cache: hit|miss` response header shows what happened.
+Public pages are cached in memory after their first render. SQLite triggers bump a version number on every write to anything a page is built from (pages, content, templates, widgets, media, forms, settings…), so a publish or edit shows on the next request, including changes made by server functions or another process. Saving a draft doesn't clear the cache. Pages that call a server function (the Liquid `fn` filter) are never cached. The `X-VodaForge-Cache: hit|miss` response header shows what happened.
 
 Page views are counted in memory and written every 5 seconds, so a busy page doesn't cost a database write per visit.
 
@@ -206,11 +210,11 @@ Put the reverse proxy's compression (gzip/brotli) in front, and let it cache `/_
 - **Health check:** `GET /api/health` returns `200 {"ok":true}` once the database answers. Docker uses it, and it's the URL to give an external uptime monitor (UptimeRobot, Better Stack, Pingdom…).
 - **Error log:** server errors, failed emails, failed backups and crashes are written to `data/logs/errors-YYYY-MM-DD.jsonl` (one JSON object per line, kept `REEF_LOG_KEEP_DAYS` days) and listed on **Settings → System health**.
 - **Alerts:** set `REEF_ALERT_WEBHOOK` and each new kind of error is POSTed as JSON with `text` (Slack, Teams workflows) and `content` (Discord) fields. The same error alerts at most once every 15 minutes, and no more than 20 alerts go out per hour. **Settings → System health → Send a test alert** checks the setup.
-- **Crashes:** an uncaught exception is logged and alerted, then Reef exits so Docker's `restart: unless-stopped` (or your process manager) starts a clean process.
+- **Crashes:** an uncaught exception is logged and alerted, then VodaForge exits so Docker's `restart: unless-stopped` (or your process manager) starts a clean process.
 
 ## Password recovery
 
-**Forgot password?** on the sign-in screen asks for an email address and always gives the same answer, so it can't be used to find out who has an account. If an active account matches, Reef emails a link to `/admin/reset-password`.
+**Forgot password?** on the sign-in screen asks for an email address and always gives the same answer, so it can't be used to find out who has an account. If an active account matches, VodaForge emails a link to `/admin/reset-password`.
 
 - The token is 256 bits of randomness. Only its SHA-256 hash is stored (table `password_resets`).
 - A link works **once** and **expires** after `REEF_RESET_TTL_MINUTES` (60). Asking again cancels earlier links. A link also stops working if the password is changed any other way, for example by an administrator under Users.
@@ -243,12 +247,12 @@ Form posts made without JavaScript get a short HTML page instead of JSON. Many m
 
 ## What's in it
 
-| Area | Reef | Sitefinity equivalent |
+| Area | VodaForge | Sitefinity equivalent |
 |---|---|---|
 | **Page editor** | Drag widgets and column layouts onto a live, server-rendered canvas. Click to select, double-click to type inline, plus undo/redo, copy/paste, keyboard shortcuts, desktop/tablet/phone preview and autosave. On a phone the canvas fills the screen and the panels open as bottom sheets. | Page editor + layout widgets |
 | **Widgets** | 22 built in: heading, text, button, image, hero, card, feature grid, stats, quote, gallery (lightbox), video, map, accordion, tabs, content list, form, navigation, search, spacer, divider, code block, React block. | Built-in widgets |
 | **Custom widgets** | Written in Code Studio as **Liquid templates** or **React components**. Fields defined as JSON become an editor-friendly inspector. | Custom widgets / MVC widgets |
-| **React** | JSX compiled on the server by esbuild. Custom React widgets are server-rendered for SEO, then hydrated. React blocks can go on any page. Any npm package can be imported (resolved via esm.sh, sharing Reef's React). | .NET Core / Next.js renderer |
+| **React** | JSX compiled on the server by esbuild. Custom React widgets are server-rendered for SEO, then hydrated. React blocks can go on any page. Any npm package can be imported (resolved via esm.sh, sharing VodaForge's React). | .NET Core / Next.js renderer |
 | **Content types** | Visual builder with 19 field types (text, rich text, image, gallery, reference, repeater, code…), optional detail pages at `/prefix/slug` with a Liquid template, and drag-to-reorder fields. | Module Builder |
 | **Content** | Search, status filters, bulk publish/unpublish/delete, manual drag ordering, tags and categories, scheduling, revisions with restore. | Content modules |
 | **Media** | Folders, drag-and-drop upload anywhere on screen, alt-text prompts, usage check before delete. Files are validated by signature. Images get WebP copies at 480–2400px, served with `srcset`/`sizes`, and a focal point you click to set keeps the subject in frame when images are cropped. | Libraries + image thumbnails |
@@ -334,7 +338,7 @@ The editor canvas is the real server-rendered page in an iframe, with an overlay
 
 ## Styling order
 
-Every page declares cascade layers up front: `theme, base, reef, components, utilities`. Reef's widget styles (`/_reef/site.css`) live in the `reef` layer, so Tailwind utilities override them, while template, code-asset, widget and page CSS stay unlayered and override both. Tailwind's Preflight reset (`base`) is off by default because it would restyle Reef's typography.
+Every page declares cascade layers up front: `theme, base, reef, components, utilities`. VodaForge's widget styles (`/_reef/site.css`) live in the `reef` layer, so Tailwind utilities override them, while template, code-asset, widget and page CSS stay unlayered and override both. Tailwind's Preflight reset (`base`) is off by default because it would restyle VodaForge's typography.
 
 ## Security notes
 

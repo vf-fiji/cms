@@ -290,7 +290,7 @@ export function CodeStudio() {
         )}
         <div className="studio-status">
           <Icon name="CodeXml" size={13} />
-          <span>{currentRef ? currentRef.kind[0].toUpperCase() + currentRef.kind.slice(1) : "Reef"}</span>
+          <span>{currentRef ? currentRef.kind[0].toUpperCase() + currentRef.kind.slice(1) : "VodaForge"}</span>
           {active && isDirty(active) && <span>● Unsaved</span>}
           <span className="spacer" />
           <span>Ctrl+S save</span>
@@ -783,7 +783,7 @@ function FunctionWorkbench({ fn, value, onChange, onSave, onReload }: { fn: Serv
   const [consoleTab, setConsoleTab] = useState<"output" | "logs">("output");
   const [collapsed, setCollapsed] = useState(false);
   const [input, setInput] = useState(() =>
-    fn.kind === "endpoint" ? JSON.stringify({ method: "GET", query: { name: "Reef" }, body: null }, null, 2) : fn.kind === "hook" ? JSON.stringify({ payload: { type: "news", title: "Test", data: { body: "<p>Hello world. Second sentence.</p>" } } }, null, 2) : "{}",
+    fn.kind === "endpoint" ? JSON.stringify({ method: "GET", query: { name: "VodaForge" }, body: null }, null, 2) : fn.kind === "hook" ? JSON.stringify({ payload: { type: "news", title: "Test", data: { body: "<p>Hello world. Second sentence.</p>" } } }, null, 2) : "{}",
   );
   const [result, setResult] = useState<any>(null);
   const [running, setRunning] = useState(false);

@@ -1,4 +1,4 @@
-// Reef CMS site runtime: forms, tabs and lightbox. No dependencies.
+// VodaForge site runtime: forms, tabs and lightbox. No dependencies.
 (function () {
   "use strict";
 

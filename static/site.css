@@ -1,4 +1,4 @@
-/* Reef CMS base site styles: Apple-style typography and spacing, brand colour from Settings.
+/* VodaForge base site styles: Apple-style typography and spacing, brand colour from Settings.
    Templates and code assets can override any rule. */
 /* Everything here sits in the "reef" cascade layer: Tailwind utilities (higher
    layer) override it, and unlayered template/page CSS overrides both. */

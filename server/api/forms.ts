@@ -51,7 +51,7 @@ const valueText = (v: unknown) => {
 
 /** The plain-text email sent to a form's notification addresses. */
 export function formNotification(form: FormDef, sub: { id: number | null; data: Record<string, unknown>; pagePath: string }, baseUrl: string | null) {
-  const site = getSettings().siteName || "Reef CMS";
+  const site = getSettings().siteName || "VodaForge";
   const shown = form.fields.filter((f) => f.type !== "heading");
   const known = new Set(shown.map((f) => f.key));
   const rows = [
@@ -68,10 +68,10 @@ export function formNotification(form: FormDef, sub: { id: number | null; data: 
     "",
     ...rows.map(([label, v]) => `${label}:\n  ${valueText(v)}\n`),
     sub.id === null
-      ? "This form doesn't store responses in Reef, so this email is the only copy."
+      ? "This form doesn't store responses in VodaForge, so this email is the only copy."
       : baseUrl
         ? `See all responses: ${baseUrl}/admin/forms/${form.id}?tab=responses`
-        : "See all responses in the Reef admin under Forms.",
+        : "See all responses in the VodaForge admin under Forms.",
   ].join("\n");
   return { subject: headerText(`New response: ${form.name}`), text };
 }

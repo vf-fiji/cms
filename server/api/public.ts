@@ -97,7 +97,7 @@ publicApi.all("/fn/:route", fnLimit, async (req, res) => {
       user: req.user ? { id: req.user.id, name: req.user.name, email: req.user.email } : null,
     },
   });
-  // 502: the function failed, not Reef. It's in the function's own logs, so it isn't added to the error log.
+  // 502: the function failed, not VodaForge. It's in the function's own logs, so it isn't added to the error log.
   if (!outcome.ok) throw new HttpError(502, req.user ? outcome.error : "The function failed. Check its logs in Code Studio.");
   const out = unwrap(outcome.result);
   for (const [k, v] of Object.entries(out.headers)) if (!/^set-cookie$/i.test(k)) res.setHeader(k, v);

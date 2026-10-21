@@ -1,4 +1,4 @@
-// Consistent backup of the Reef database and uploaded media. Safe while Reef is running.
+// Consistent backup of the VodaForge database and uploaded media. Safe while VodaForge is running.
 //
 //   npm run backup                       # into ./backups (or REEF_BACKUP_DIR)
 //   npm run backup -- --out /mnt/backups --keep 14

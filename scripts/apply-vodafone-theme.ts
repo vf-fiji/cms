@@ -1,4 +1,4 @@
-// Applies the Vodafone / Apple-style theme to an existing Reef database.
+// Applies the Vodafone / Apple-style theme to an existing VodaForge database.
 // New installs get it from the seed automatically; this updates sites created earlier.
 //
 //   npm run theme:vodafone

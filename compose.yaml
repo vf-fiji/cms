@@ -1,11 +1,11 @@
-# Reef CMS behind your TLS reverse proxy. See "Deploying" in README.md.
+# VodaForge behind your TLS reverse proxy. See "Deploying" in README.md.
 #   cp .env.example .env   # then edit it
 #   docker compose up -d --build
 services:
   reef:
     build: .
-    image: reef-cms:latest
-    init: true # forwards docker stop's SIGTERM so Reef shuts down cleanly
+    image: vodaforge:latest
+    init: true # forwards docker stop's SIGTERM so VodaForge shuts down cleanly
     restart: unless-stopped
     env_file:
       - path: .env

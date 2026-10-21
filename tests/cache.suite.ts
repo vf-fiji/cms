@@ -52,7 +52,7 @@ describe("page cache (server)", () => {
   let pageId: number;
   const get = async (p: string) => {
     const r = await fetch(server.url + p);
-    return { cache: r.headers.get("x-reef-cache"), html: await r.text(), status: r.status };
+    return { cache: r.headers.get("x-vodaforge-cache"), html: await r.text(), status: r.status };
   };
 
   before(async () => {
@@ -102,10 +102,10 @@ describe("page cache (server)", () => {
 
   it("updates every page when site settings change", async () => {
     await get("/cached");
-    await admin.put("/api/settings", { siteName: "Renamed Reef" });
+    await admin.put("/api/settings", { siteName: "Renamed VodaForge" });
     const r = await get("/cached");
     assert.equal(r.cache, "miss");
-    assert.match(r.html, /Renamed Reef/);
+    assert.match(r.html, /Renamed VodaForge/);
   });
 
   it("stops serving a page as soon as it's unpublished", async () => {

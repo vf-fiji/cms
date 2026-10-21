@@ -28,7 +28,7 @@ async function request<T>(method: Method, url: string, body?: unknown): Promise<
   try {
     res = await fetch(`/api${url}`, { method, headers, body: payload, credentials: "same-origin" });
   } catch {
-    throw new ApiError(0, "Can't reach the server. Check that Reef is running and try again.");
+    throw new ApiError(0, "Can't reach the server. Check that VodaForge is running and try again.");
   }
   const type = res.headers.get("content-type") ?? "";
   const data = type.includes("application/json") ? await res.json().catch(() => null) : await res.text();
