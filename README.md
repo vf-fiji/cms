@@ -333,6 +333,7 @@ Tests use Node's built-in runner and live in `tests/*.suite.ts`. The `.suite.ts`
 - `static/`: the public site's base CSS/JS and the editor canvas script.
 - `shared/`: types and the widget catalogue used by both server and admin.
 - `admin/`: the React admin app (Vite), served at `/admin`.
+- `brand/`: the logo source and `make-logo.mjs`, which builds the square mark, favicons and app icon from it (`node brand/make-logo.mjs`).
 
 The editor canvas is the real server-rendered page in an iframe, with an overlay script for selection and drag-and-drop. What editors see is what visitors get, including custom CSS, templates and React widgets.
 

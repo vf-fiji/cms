@@ -106,7 +106,7 @@ h1, h2, h3, h4 { margin: 0; letter-spacing: -0.022em; font-family: var(--font-di
 .app { display: grid; grid-template-columns: var(--sidebar-w) 1fr; height: 100vh; }
 .sidebar { display: flex; flex-direction: column; background: var(--sidebar); border-right: 1px solid var(--border); min-height: 0; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 10px; }
-.brand-mark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: #fff; background: linear-gradient(160deg, #ff2a2a 0%, #e60000 45%, #a8000b 100%); box-shadow: 0 6px 16px -6px rgb(230 0 0 / .7), inset 0 1px 0 rgb(255 255 255 / .35); flex: none; }
+.brand-mark { display: block; flex: none; object-fit: contain; filter: drop-shadow(0 4px 10px rgb(230 0 0 / .28)); user-select: none; }
 .brand-name { font-weight: 700; font-size: 15px; letter-spacing: -0.02em; line-height: 1.2; }
 .brand-site { font-size: 12px; color: var(--text-3); line-height: 1.2; }
 .search-trigger { margin: 6px 12px 10px; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-radius: 10px; border: 0; background: rgb(118 118 128 / .12); color: var(--text-2); cursor: pointer; font-size: 13px; transition: background .2s var(--ease); }

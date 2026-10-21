@@ -182,6 +182,7 @@ function Shell() {
           <button className="btn btn-ghost btn-icon" onClick={() => setMobileNav(true)} aria-label="Open navigation">
             <Icon name="Menu" />
           </button>
+          <BrandMark size={24} />
           <strong>VodaForge</strong>
         </div>
         <Suspense fallback={<Spinner />}>

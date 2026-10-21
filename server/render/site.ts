@@ -170,7 +170,7 @@ export async function renderDocument(input: DocInput): Promise<string> {
     input.seo.ogImage ? `<meta property="og:image" content="${e(input.seo.ogImage)}">` : "",
     input.seo.canonical ? `<link rel="canonical" href="${e(input.seo.canonical)}">` : "",
     input.seo.noIndex || input.editor ? `<meta name="robots" content="noindex">` : "",
-    site.favicon ? `<link rel="icon" href="${e(site.favicon)}">` : `<link rel="icon" href="/_reef/favicon.svg">`,
+    site.favicon ? `<link rel="icon" href="${e(site.favicon)}">` : `<link rel="icon" type="image/png" href="/_reef/favicon.png">`,
     `<link rel="stylesheet" href="/_reef/site.css">`,
     `<style>:root{--rf-primary:${e(site.primaryColor || "#e60000")};--rf-accent:${e(site.accentColor || "#820000")}}</style>`,
     tailwind ? `<style data-tailwind>
