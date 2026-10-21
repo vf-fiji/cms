@@ -1,7 +1,7 @@
 // Builds the square VodaForge mark from brand/vodaforge-logo-source.webp (symbol only, no wordmark).
 //   node brand/make-logo.mjs
-// Writes static/brand/*.png and static/favicon.png. The white background becomes transparent,
-// with edge pixels un-blended from white so the mark looks clean on any background.
+// Writes static/brand/*.png and static/favicon.png. The white around the mark becomes transparent
+// (edges un-blended from white, so it looks clean on any background); the white hammer stays white.
 import sharp from "sharp";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -25,12 +25,69 @@ for (let y = SYMBOL_ROWS[0]; y <= SYMBOL_ROWS[1]; y++)
   }
 const w = x1 - x0 + 1, h = y1 - y0 + 1;
 
-// white → transparent: alpha from how far the pixel is from white, colour un-blended
+// Background vs. white inside the mark: flood-fill light pixels from the crop's edges. What the fill
+// reaches is background and becomes transparent; light pixels it can't reach (the hammer) stay white.
+const LIGHT = 200;
+const isLight = (x, y) => {
+  const i = ((y + y0) * W + (x + x0)) * 3;
+  return Math.min(data[i], data[i + 1], data[i + 2]) >= LIGHT;
+};
+// The hammer's white is open to the outside in two places: the strip above its head between the V
+// and the F, and the end of its handle between the V's tip and the F's lower stroke. These lines
+// (source-image coordinates) close those openings for the fill only; they're never drawn.
+const BARRIERS = [
+  [[690, 358], [748, 330]], // top of the hammer head
+  [[604, 596], [646, 659]], // end of the handle
+];
+const blocked = new Uint8Array(w * h);
+for (const [[ax, ay], [bx, by]] of BARRIERS) {
+  const steps = Math.ceil(Math.hypot(bx - ax, by - ay) * 2);
+  for (let t = 0; t <= steps; t++) {
+    const cx = ax + ((bx - ax) * t) / steps - x0, cy = ay + ((by - ay) * t) / steps - y0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = Math.round(cx + dx), yy = Math.round(cy + dy);
+      if (xx >= 0 && yy >= 0 && xx < w && yy < h) blocked[yy * w + xx] = 1;
+    }
+  }
+}
+const light = (x, y) => !blocked[y * w + x] && isLight(x, y);
+const bg = new Uint8Array(w * h);
+const stack = [];
+for (let x = 0; x < w; x++) stack.push([x, 0], [x, h - 1]);
+for (let y = 0; y < h; y++) stack.push([0, y], [w - 1, y]);
+while (stack.length) {
+  const [x, y] = stack.pop();
+  if (x < 0 || y < 0 || x >= w || y >= h || bg[y * w + x] || !light(x, y)) continue;
+  bg[y * w + x] = 1;
+  stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+}
+// pixels within 2px of the background are its anti-aliased edge: those get partial transparency
+const edge = new Uint8Array(w * h);
+for (let y = 0; y < h; y++)
+  for (let x = 0; x < w; x++) {
+    if (!bg[y * w + x]) continue;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx >= 0 && yy >= 0 && xx < w && yy < h) edge[yy * w + xx] = 1;
+    }
+  }
+
+let kept = 0;
 const rgba = Buffer.alloc(w * h * 4);
 for (let y = 0; y < h; y++)
   for (let x = 0; x < w; x++) {
     const i = ((y + y0) * W + (x + x0)) * 3, o = (y * w + x) * 4;
     const r = data[i], g = data[i + 1], b = data[i + 2];
+    // the barrier lines themselves are background, so the hammer ends cleanly at them
+    const hammer = !bg[y * w + x] && !blocked[y * w + x] && Math.min(r, g, b) >= LIGHT;
+    if (blocked[y * w + x] && Math.min(r, g, b) >= LIGHT) bg[y * w + x] = 1;
+    if (!edge[y * w + x] || hammer) {
+      // inside the mark (red, shading or the white hammer): fully opaque, colour as drawn
+      rgba[o] = r; rgba[o + 1] = g; rgba[o + 2] = b; rgba[o + 3] = 255;
+      if (hammer) kept++;
+      continue;
+    }
+    // background and its edge: alpha from how far the pixel is from white, colour un-blended
     let a = (255 - Math.min(r, g, b)) / 255;
     if (a < 0.04) a = 0;
     const un = (c) => (a ? Math.max(0, Math.min(255, Math.round((c - 255 * (1 - a)) / a))) : 0);
@@ -57,4 +114,4 @@ const adminPublic = fileURLToPath(new URL("../admin/public/", import.meta.url));
 fs.mkdirSync(adminPublic, { recursive: true });
 fs.copyFileSync(out("../favicon.png"), `${adminPublic}favicon.png`);
 fs.copyFileSync(out("apple-touch-icon.png"), `${adminPublic}apple-touch-icon.png`);
-console.log(`symbol ${w}x${h} at ${x0},${y0} → square ${side}px`);
+console.log(`symbol ${w}x${h} at ${x0},${y0} → square ${side}px; ${kept} white pixels kept inside the mark`);

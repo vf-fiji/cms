@@ -13,8 +13,8 @@ function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="login">
       <div className="login-art">
-        <div className="row" style={{ gap: 10 }}>
-          <BrandMark />
+        <div className="row" style={{ gap: 12 }}>
+          <BrandMark size={46} />
           <div>
             <strong style={{ fontSize: 17, display: "block" }}>{PRODUCT_NAME}</strong>
             <span className="login-tagline">{PRODUCT_TAGLINE}</span>
