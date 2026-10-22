@@ -3,7 +3,7 @@ import { all, get, json, getSettings } from "../db";
 import { HttpError } from "../auth";
 import { listPublishedItems, getPublishedItem } from "../content";
 import { invokeEndpointByRoute, mapFunction, runFunction, unwrap } from "../functions";
-import { computePaths, type PageSnapshot } from "../render/site";
+import { computePaths, renderFragment, type PageSnapshot } from "../render/site";
 import { publicForms } from "./forms";
 import { rateLimit, envLimit } from "../ratelimit";
 import { search } from "../search";
@@ -55,6 +55,15 @@ publicApi.get("/public/pages", (_req, res) => {
       return { id: r.id, parentId: r.parent_id, title: s.title, path: paths.get(r.id), seo: s.seo, layout: s.layout, publishedAt: r.published_at };
     }),
   );
+});
+
+// A published page's rendered body, for front ends that show VodaForge pages inside their own frame
+publicApi.get("/public/render", async (req, res) => {
+  requireHeadless();
+  const fragment = await renderFragment(String(req.query.path ?? "/").slice(0, 500));
+  if (!fragment) throw new HttpError(404, "No published page at this address.");
+  res.setHeader("Cache-Control", "no-store");
+  res.json(fragment);
 });
 
 // Site search for visitors and headless front ends (always on: it only covers published content)

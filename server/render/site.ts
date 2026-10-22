@@ -5,7 +5,7 @@ import { renderLayout, type RenderCtx, type NavItem } from "./widgets";
 import { renderLiquid, escapeHtml as e, SafeHtml, liquidItem } from "./liquid";
 import { getTypeByKey, itemForTemplate, mapItem, itemUrl } from "../content";
 import { all as allRows } from "../db";
-import { IMPORT_MAP } from "../react";
+import { importMapTag } from "../react";
 import { buildTailwind, classesFromHtml, classesFromSource, LAYER_ORDER } from "../tailwind";
 
 export interface PageSnapshot {
@@ -161,7 +161,7 @@ export async function renderDocument(input: DocInput): Promise<string> {
     `<meta charset="utf-8">`,
     `<style>${LAYER_ORDER}</style>`,
     // must precede any module script; always present in the editor so React blocks can be added live
-    input.ctx.react || input.editor ? IMPORT_MAP : "",
+    input.ctx.react || input.editor ? importMapTag() : "",
     `<meta name="viewport" content="width=device-width, initial-scale=1">`,
     `<title>${e(metaTitle)}</title>`,
     desc ? `<meta name="description" content="${e(desc)}">` : "",
@@ -241,6 +241,43 @@ export async function renderPageSnapshot(
     editor: !!opts.editor,
     ctx,
   });
+}
+
+export interface PageFragment {
+  path: string;
+  title: string;
+  seo: PageSeo;
+  html: string;
+  css: string[];
+  modules: { id: string; src: string }[];
+}
+
+/**
+ * A published page's body for a headless front end that keeps its own frame
+ * (header, footer, fonts). React widgets come back as module addresses for the
+ * front end to load and mount with VodaForge's React runtime (/_reef/react.js).
+ */
+export async function renderFragment(path: string): Promise<PageFragment | null> {
+  const page = findPageByPath(path);
+  if (!page?.published) return null;
+  const snap = json<PageSnapshot>(page.published, null as any);
+  const canonical = computePaths().get(page.id) ?? path;
+  const ctx = newCtx(canonical, false, {}, { id: page.id, title: snap.title, parentId: page.parent_id });
+  const html = await renderLayout(snap.layout, ctx);
+  // utilities only: the front end's own base styles stay in charge
+  const tailwind = await buildTailwind({ ...(ctx.site as any), tailwindPreflight: false }, [...classesFromHtml(html), ...ctx.sources.flatMap(classesFromSource)]);
+  const modules = [...ctx.modules.entries()].flatMap(([id, code]) => {
+    const src = code.match(/from\s+"(\/_reef\/rw\/[0-9a-f]+\.js)"/)?.[1];
+    return src ? [{ id, src }] : [];
+  });
+  return {
+    path: canonical,
+    title: snap.title,
+    seo: snap.seo ?? {},
+    html,
+    css: [tailwind, ...ctx.css.values(), snap.customCss].filter(Boolean),
+    modules,
+  };
 }
 
 /** Public request handler result. Redirects and view counts run every time; the render itself is cached. */

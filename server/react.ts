@@ -6,6 +6,7 @@ import vm from "node:vm";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { getSettings } from "./db";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -16,7 +17,24 @@ const ReactDOMServer = require("react-dom/server");
 export const REACT_RUNTIME_URL = "/_reef/react.js";
 const REACT_SPECIFIERS = ["react", "react/jsx-runtime", "react/jsx-dev-runtime", "react-dom", "react-dom/client"];
 
-export const IMPORT_MAP = `<script type="importmap">${JSON.stringify({ imports: Object.fromEntries(REACT_SPECIFIERS.map((s) => [s, REACT_RUNTIME_URL])) })}</script>`;
+/** Extra import-map entries from Settings (importMap) and the REEF_IMPORT_MAP environment variable (JSON). */
+export function extraImports(): Record<string, string> {
+  let env: Record<string, string> = {};
+  try {
+    env = process.env.REEF_IMPORT_MAP ? JSON.parse(process.env.REEF_IMPORT_MAP) : {};
+  } catch {
+    console.warn("[react] REEF_IMPORT_MAP isn't valid JSON; ignoring it.");
+  }
+  const extra: Record<string, string> = { ...((getSettings().importMap ?? {}) as Record<string, string>), ...env };
+  for (const s of REACT_SPECIFIERS) delete extra[s]; // React always comes from VodaForge
+  return extra;
+}
+
+/** The page's import map: VodaForge's shared React runtime plus any configured packages. */
+export function importMapTag() {
+  const imports = { ...extraImports(), ...Object.fromEntries(REACT_SPECIFIERS.map((s) => [s, REACT_RUNTIME_URL])) };
+  return `<script type="importmap">${JSON.stringify({ imports }).replace(/</g, "\\u003c")}</script>`;
+}
 
 // ---------- browser runtime (React + ReactDOM + mount helper), built once ----------
 const VENDOR_ENTRY = `
@@ -80,10 +98,11 @@ export function reactRuntime(): Promise<string> {
 const browserModules = new Map<string, string>(); // hash -> ESM source
 const hashOf = (s: string) => crypto.createHash("sha1").update(s).digest("hex").slice(0, 16);
 
-/** Bare imports other than React resolve through esm.sh, sharing VodaForge's React. */
+/** Bare imports other than React (and import-map entries) resolve through esm.sh, sharing VodaForge's React. */
 function rewriteBareImports(code: string) {
+  const mapped = extraImports();
   return code.replace(/(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(["'])([^"'./][^"']*)\2/g, (m, pre, q, spec) => {
-    if (REACT_SPECIFIERS.includes(spec) || /^(https?:|data:)/.test(spec)) return m;
+    if (REACT_SPECIFIERS.includes(spec) || spec in mapped || /^(https?:|data:)/.test(spec)) return m;
     const url = `https://esm.sh/${spec}${spec.includes("?") ? "&" : "?"}external=react,react-dom`;
     return `${pre}${q}${url}${q}`;
   });

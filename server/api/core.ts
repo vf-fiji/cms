@@ -295,6 +295,13 @@ core.put("/settings", requirePerm("settings.manage"), async (req, res) => {
   for (const k of ["tailwindEnabled", "tailwindPreflight", "sitemapEnabled", "headlessApiEnabled", "require2fa"]) if (k in body) body[k] = !!body[k];
   if (body.require2fa && !getSettings().require2fa && !req.user!.twoFactorEnabled) throw new HttpError(400, "Turn on two-factor sign-in for your own account first (Account → Two-factor sign-in), so you can't lock yourself out.");
   if ("tailwindCss" in body && typeof body.tailwindCss !== "string") throw new HttpError(400, "Tailwind CSS must be text.");
+  if ("importMap" in body) {
+    const map = body.importMap;
+    const ok =
+      map && typeof map === "object" && !Array.isArray(map) &&
+      Object.entries(map).every(([k, v]) => /^[@a-z0-9][\w@./-]{0,99}$/i.test(k) && typeof v === "string" && /^(https?:\/\/|\/)[^\s"'<>]{1,500}$/.test(v));
+    if (!ok) throw new HttpError(400, "Import map entries need a package name and an http(s) or site-relative address.");
+  }
   const current = getSettings();
   const next = { ...current, ...body };
   if (next.tailwindEnabled && (next.tailwindCss !== current.tailwindCss || next.tailwindPreflight !== current.tailwindPreflight)) {

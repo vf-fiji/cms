@@ -292,6 +292,12 @@ export default function Counter({ title }) {
 }
 ```
 
+**Shared component libraries.** Bare imports go through esm.sh, except packages listed in the **import map** (`importMap` in Settings, or the `REEF_IMPORT_MAP` environment variable as JSON), which the browser loads from the address given, e.g. `{"@fnrl/kit": "https://fnrl.example.com/cms-kit/fnrl-kit.js"}`. React always comes from VodaForge.
+
+**Headless front ends that keep their own frame** can show published pages with `GET /api/public/render?path=/about`: the page body HTML, its CSS, and its React widgets as module addresses (`/_reef/rw/<hash>.js`) to mount with `mount(Component, id)` from `/_reef/react.js`.
+
+**Fiji National Rugby League.** `npm run fnrl:import -- --site=<FNRL site> [--api=<FNRL server>] [--secret=<webhook secret>]` installs the FNRL blocks, template, pages and news (see `scripts/import-fnrl.ts` and the FNRL repository's `docs/CMS.md`).
+
 **Server function** (Code Studio → Server functions → +)
 
 ```js

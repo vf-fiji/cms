@@ -13,6 +13,7 @@
     "theme:vodafone": "node --import tsx scripts/apply-vodafone-theme.ts",
     "backup": "node --import tsx scripts/backup.ts",
     "restore": "node --import tsx scripts/restore.ts",
+    "fnrl:import": "node --import tsx scripts/import-fnrl.ts",
     "media:variants": "node --import tsx -e \"import('./server/images.ts').then((m) => m.backfillVariants(true))\""
   },
   "dependencies": {

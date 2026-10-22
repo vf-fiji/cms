@@ -441,3 +441,54 @@ describe("public site", () => {
     assert.equal((await fetch(`${server.url}/api/public/content/news`)).status, 200);
   });
 });
+
+describe("page fragments for headless front ends", () => {
+  it("renders a published page body with its React widgets as module addresses", async () => {
+    await admin.put("/api/settings", { headlessApiEnabled: true, importMap: { "@site/kit": "https://example.com/kit.js" } });
+    const p = await admin.post("/api/pages", { title: "Fragment Page", starter: "blank" });
+    const layout = {
+      sections: [
+        {
+          id: "s1",
+          props: {},
+          columns: [
+            {
+              id: "c1",
+              width: 12,
+              props: {},
+              widgets: [
+                { id: "h1", type: "heading", props: { text: "Fragment heading", level: "h1" } },
+                { id: "r1", type: "react", props: { code: `import { Badge } from "@site/kit";\nexport default function R() { return <Badge />; }` } },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const page = await admin.get(`/api/pages/${p.body.id}`);
+    await admin.put(`/api/pages/${p.body.id}`, { layout, baseUpdatedAt: page.body.updatedAt });
+    assert.equal((await fetch(`${server.url}/api/public/render?path=/fragment-page`)).status, 404, "drafts aren't served");
+    await admin.post(`/api/pages/${p.body.id}/publish`);
+
+    const r = await fetch(`${server.url}/api/public/render?path=/fragment-page`);
+    assert.equal(r.status, 200);
+    const f = await r.json();
+    assert.equal(f.path, "/fragment-page");
+    assert.match(f.html, /Fragment heading/);
+    assert.doesNotMatch(f.html, /<html|<script/, "only the page body, without scripts");
+    assert.equal(f.modules.length, 1);
+    assert.equal(f.modules[0].id, "r1");
+    assert.match(f.modules[0].src, /^\/_reef\/rw\/[0-9a-f]+\.js$/);
+    // import-map packages stay bare for the page's import map instead of going through esm.sh
+    const mod = await (await fetch(server.url + f.modules[0].src)).text();
+    assert.match(mod, /from "@site\/kit"/);
+    const html = await (await fetch(`${server.url}/fragment-page`)).text();
+    assert.match(html, /"@site\/kit":"https:\/\/example.com\/kit.js"/);
+  });
+
+  it("refuses import-map entries that aren't package names and addresses", async () => {
+    assert.equal((await admin.put("/api/settings", { importMap: { "bad key!": "https://example.com/x.js" } })).status, 400);
+    assert.equal((await admin.put("/api/settings", { importMap: { kit: "javascript:alert(1)" } })).status, 400);
+    await admin.put("/api/settings", { importMap: {} });
+  });
+});

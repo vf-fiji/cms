@@ -310,6 +310,11 @@ export interface SiteSettings {
   tailwindPreflight: boolean;
   /** extra Tailwind input: @theme, @utility, @custom-variant … */
   tailwindCss: string;
+  /**
+   * Extra import-map entries for React widgets, e.g. { "@fnrl/kit": "https://example.org/kit.js" }.
+   * Widgets can then import these names; they are not rewritten to esm.sh.
+   */
+  importMap: Record<string, string>;
 }
 
 export interface Redirect {

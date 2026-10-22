@@ -332,6 +332,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   defaultMetaDescription: "",
   socialLinks: [],
   analyticsHead: "",
+  importMap: {},
   tailwindEnabled: true,
   tailwindPreflight: false,
   tailwindCss: `/* Customise Tailwind here. bg-primary and bg-accent already use your brand colours.
