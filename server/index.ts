@@ -16,7 +16,8 @@ import { publicApi } from "./api/public";
 import { recovery } from "./api/recovery";
 import { parseTrustProxy } from "./http";
 import { getMailTransport } from "./mail";
-import { renderPublicPath, renderPageSnapshot, renderContentDetail, computePaths, sitemapXml, flushViews, type PageSnapshot } from "./render/site";
+import { renderPublicPath, renderPageSnapshot, renderContentDetail, renderStudioPreview, computePaths, sitemapXml, flushViews, type PageSnapshot } from "./render/site";
+import { previewOverrides } from "./preview";
 import { runDueSchedules, warmFunctionWorkers } from "./functions";
 import { seedIfEmpty } from "./seed";
 import { reactRuntime, getBrowserModule } from "./react";
@@ -154,6 +155,18 @@ async function start() {
 
   // ---------- public website (catch-all) ----------
   app.get(/.*/, async (req, res) => {
+    // Code Studio's live preview: this page's draft with unsaved code changes (signed-in only, never cached)
+    const token = typeof req.query.reef_studio === "string" ? req.query.reef_studio : "";
+    if (token && req.user) {
+      const studio = previewOverrides(token, req.user.id);
+      if (!studio) throw new HttpError(410, "This preview has expired. Turn the preview off and on again in Code Studio.");
+      const { reef_studio: _, ...query } = req.query as Record<string, string>;
+      const html = await renderStudioPreview(decodeURIComponent(req.path), query, studio);
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("X-Robots-Tag", "noindex");
+      if (html === null) return res.status(404).type("text").send("No page at this address. Choose another page to preview.");
+      return res.type("html").send(html);
+    }
     const result = await renderPublicPath(decodeURIComponent(req.path), req.query as Record<string, string>);
     if (result.redirect) return res.redirect(result.status, result.redirect);
     res.setHeader("X-VodaForge-Cache", result.cached ? "hit" : "miss");

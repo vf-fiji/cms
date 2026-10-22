@@ -761,3 +761,23 @@ tr[tabindex]:focus-visible { outline-offset: -2px; }
 @media (max-width: 760px) and (prefers-reduced-motion: reduce) { .editor-left, .editor-right { transition: none; } }
 
 .login-tagline { display: block; font-size: 12.5px; color: rgb(255 255 255 / .62); letter-spacing: -0.005em; margin-top: 1px; }
+
+/* Code Studio live preview: code | preview | settings */
+.studio-editor.with-preview > div { flex: 1 1 0; }
+.studio-preview { flex: 1.15 1 0; min-width: 320px; display: flex; flex-direction: column; border-left: 1px solid #2b2b2b; background: #141416; }
+.studio-preview-bar { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 8px; border-bottom: 1px solid #2b2b2b; background: #1e1e1e; flex: none; }
+.studio-preview-bar .select { flex: 1; min-width: 0; height: 28px; background: #2d2d30; border-color: #3c3c3c; color: #ddd; box-shadow: none; font-size: 12.5px; }
+.studio-preview-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #3fb950; transition: background .2s; }
+.studio-preview-dot.is-updating { background: #d29922; animation: studio-pulse 1s ease-in-out infinite; }
+.studio-preview-dot.is-error { background: #f85149; }
+@keyframes studio-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .studio-preview-dot.is-updating { animation: none; } }
+.studio-preview-devices { display: flex; background: #2d2d30; border: 1px solid #3c3c3c; border-radius: 8px; padding: 2px; flex: none; }
+.studio-preview-devices button, .studio-preview-btn { display: grid; place-items: center; width: 28px; height: 24px; border: 0; border-radius: 6px; background: none; color: #a8a8ad; cursor: pointer; }
+.studio-preview-btn { height: 28px; flex: none; }
+.studio-preview-devices button:hover, .studio-preview-btn:hover { color: #fff; background: #37373d; }
+.studio-preview-devices button.active { color: #fff; background: #4a4a50; }
+.studio-preview-devices button:focus-visible, .studio-preview-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.studio-preview-error { background: #5a1d1d; color: #f48771; padding: 6px 12px; font-size: 12px; flex: none; }
+.studio-preview-stage { flex: 1; min-height: 0; overflow: hidden; background: #0d0d0f radial-gradient(rgb(255 255 255 / .06) 1px, transparent 1px) 0 0 / 18px 18px; }
+.studio-preview-note { margin: 0; padding: 6px 12px; font-size: 11.5px; color: #8b8b90; border-top: 1px solid #2b2b2b; flex: none; }

@@ -1,4 +1,5 @@
 import type { WidgetNode, SectionNode, PageLayout, FormDef, CustomWidget } from "../../shared/types";
+import type { StudioOverrides } from "../preview";
 import { sanitizeRichText } from "../sanitize";
 import { escapeHtml as e, renderLiquid, SafeHtml, liquidItem } from "./liquid";
 import { listPublishedItems } from "../content";
@@ -52,7 +53,12 @@ export interface RenderCtx {
   lastHeading?: number;
   nav: NavItem[];
   customWidgets?: Map<string, CustomWidget>;
+  /** Unsaved Code Studio changes, applied for its live preview only */
+  studio?: StudioOverrides;
 }
+
+/** An object without its undefined values, to lay over another. */
+export const defined = <T extends object>(o: T): Partial<T> => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
 
 export interface NavItem {
   id: number;
@@ -312,7 +318,9 @@ function getCustomWidget(key: string, ctx: RenderCtx): CustomWidget | undefined 
       ]),
     );
   }
-  return ctx.customWidgets.get(key);
+  const base = ctx.customWidgets.get(key);
+  const change = ctx.studio?.widget;
+  return base && change?.key === key ? { ...base, ...defined(change) } : base;
 }
 
 /** Widget props minus the shared "_spacing"/"_class" style keys. */

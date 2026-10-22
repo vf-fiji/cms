@@ -6,6 +6,7 @@ import { Icon, PICKER_ICONS } from "../lib/icons";
 import { useAuth } from "../lib/auth";
 import { formatDate, timeAgo } from "../lib/format";
 import { CodeEditor, type CodeLang } from "../components/CodeEditor";
+import { StudioPreview } from "../components/StudioPreview";
 import { Button, confirmDialog, Field, Modal, Switch, toast, useHotkey, useProChrome, press, pressRow } from "../components/ui";
 
 type Kind = "template" | "asset" | "widget" | "function";
@@ -349,6 +350,24 @@ function FileEditor({
   const [fieldsText, setFieldsText] = useState(() => (kind === "widget" ? JSON.stringify(f.fields, null, 2) : ""));
   const [fieldsError, setFieldsError] = useState<string | null>(null);
   const [history, setHistory] = useState(false);
+  // live preview of a page with this file's unsaved changes (widgets, templates and code assets)
+  const previewable = kind === "widget" || kind === "template" || kind === "asset";
+  const [preview, setPreview] = useState(() => {
+    try {
+      return localStorage.getItem("reef-studio-preview") === "on";
+    } catch {
+      return false;
+    }
+  });
+  const togglePreview = () => {
+    setPreview(!preview);
+    try {
+      localStorage.setItem("reef-studio-preview", preview ? "off" : "on");
+    } catch {
+      /* preferences are optional */
+    }
+  };
+  const showPreview = previewable && preview && !history;
   const value = tab.key === "fields" ? fieldsText : String(f[tab.key] ?? "");
   const onChange = (v: string) => {
     if (tab.key === "fields") {
@@ -388,10 +407,15 @@ function FileEditor({
         )}
         <div className="spacer" />
         {kind === "template" && <Button size="sm" icon="Globe" onClick={() => window.open("/", "_blank")}>View site</Button>}
+        {previewable && (
+          <Button size="sm" icon={preview ? "EyeOff" : "Eye"} className={preview ? "active" : ""} onClick={togglePreview} aria-pressed={preview} title="Show a page with your unsaved changes, live as you type">
+            Preview
+          </Button>
+        )}
         <Button size="sm" icon="History" className={history ? "active" : ""} onClick={() => setHistory(!history)} aria-pressed={history}>History</Button>
         <Button size="sm" variant="primary" icon="Save" loading={saving} disabled={!dirty || !!fieldsError} onClick={onSave}>Save</Button>
       </div>
-      <div className="studio-editor">
+      <div className={`studio-editor${showPreview ? " with-preview" : ""}`}>
         {history ? (
           <HistoryPanel kind={kind} file={f} activeField={tab.key} onRestore={restore} onClose={() => setHistory(false)} />
         ) : kind === "function" ? (
@@ -402,6 +426,7 @@ function FileEditor({
             <CodeEditor value={value} onChange={onChange} language={tab.lang} height="100%" dark onSave={onSave} className="grow" />
           </div>
         )}
+        {showPreview && <StudioPreview kind={kind as "widget" | "template" | "asset"} file={f} />}
         {!history && (
           <aside className="studio-props" aria-label="Settings">
             <Props kind={kind} f={f} onEdit={onEdit} onDelete={onDelete} hookEvents={hookEvents} />

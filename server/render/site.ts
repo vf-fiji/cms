@@ -1,7 +1,8 @@
 import { all, get, json, getSettings, run, tx } from "../db";
 import { cachedRender } from "./cache";
 import type { PageLayout, PageSeo, Template, CodeAsset } from "../../shared/types";
-import { renderLayout, type RenderCtx, type NavItem } from "./widgets";
+import { renderLayout, defined, type RenderCtx, type NavItem } from "./widgets";
+import type { StudioOverrides } from "../preview";
 import { renderLiquid, escapeHtml as e, SafeHtml, liquidItem } from "./liquid";
 import { getTypeByKey, itemForTemplate, mapItem, itemUrl } from "../content";
 import { all as allRows } from "../db";
@@ -75,14 +76,20 @@ export function buildNav(activePath: string, includeDrafts = false): NavItem[] {
   return make(null);
 }
 
-function getTemplate(id: number | null): Template {
+function getTemplate(id: number | null, studio?: StudioOverrides): Template {
   const r = (id ? get("SELECT * FROM templates WHERE id = ?", id) : undefined) ?? get("SELECT * FROM templates ORDER BY is_default DESC, id LIMIT 1");
   if (!r) return { id: 0, name: "Blank", html: "{{ content }}", css: "", js: "", head: "", isDefault: true, updatedAt: "" };
-  return { id: r.id, name: r.name, html: r.html, css: r.css, js: r.js, head: r.head, isDefault: !!r.is_default, updatedAt: r.updated_at };
+  const t: Template = { id: r.id, name: r.name, html: r.html, css: r.css, js: r.js, head: r.head, isDefault: !!r.is_default, updatedAt: r.updated_at };
+  return studio?.template?.id === t.id ? { ...t, ...defined(studio.template) } : t;
 }
 
-function codeAssets(): CodeAsset[] {
-  return allRows("SELECT * FROM code_assets WHERE enabled = 1 ORDER BY sort, id").map((r: any) => ({
+function codeAssets(studio?: StudioOverrides): CodeAsset[] {
+  const change = studio?.asset;
+  // the asset being edited is included even while it's turned off, if the studio turns it on
+  return allRows("SELECT * FROM code_assets ORDER BY sort, id")
+    .map((r: any) => (change && change.id === r.id ? { ...r, ...defined(change), enabled: change.enabled ?? !!r.enabled } : r))
+    .filter((r: any) => !!r.enabled)
+    .map((r: any) => ({
     id: r.id,
     name: r.name,
     kind: r.kind,
@@ -122,8 +129,8 @@ export interface DocInput {
 
 export async function renderDocument(input: DocInput): Promise<string> {
   const site = input.ctx.site as any;
-  const tpl = getTemplate(input.templateId);
-  const allAssets = codeAssets();
+  const tpl = getTemplate(input.templateId, input.ctx.studio);
+  const allAssets = codeAssets(input.ctx.studio);
   const assets = input.editor ? allAssets.filter((a) => a.kind !== "js") : allAssets;
   const pageVars = {
     id: input.pageId,
@@ -223,9 +230,10 @@ export function newCtx(path: string, editor: boolean, query: Record<string, stri
 export async function renderPageSnapshot(
   page: { id: number; parentId: number | null; slug: string; path: string },
   snap: PageSnapshot,
-  opts: { editor?: boolean; query?: Record<string, string> } = {},
+  opts: { editor?: boolean; query?: Record<string, string>; studio?: StudioOverrides } = {},
 ) {
   const ctx = newCtx(page.path, !!opts.editor, opts.query ?? {}, { id: page.id, title: snap.title, parentId: page.parentId });
+  ctx.studio = opts.studio;
   const bodyHtml = await renderLayout(snap.layout, ctx);
   return renderDocument({
     title: snap.title,
@@ -315,6 +323,27 @@ async function renderRouted(page: RoutedRow, path: string, query: Record<string,
       ? { ...snap, seo: { ...snap.seo, noIndex: true } }
       : snap;
   return renderPageSnapshot({ id: page.id, parentId: page.parent_id, slug: page.slug, path }, titled, { query });
+}
+
+/**
+ * Code Studio's live preview: the draft of the page at `path` (or of the page
+ * that answers it through a route), with the studio's unsaved changes applied.
+ */
+export async function renderStudioPreview(path: string, query: Record<string, string>, studio: StudioOverrides): Promise<string | null> {
+  const direct = findPageByPath(path);
+  const id = direct?.id ?? findRoutedPage(path)?.page.id;
+  if (!id) return null;
+  const row = get<any>("SELECT * FROM pages WHERE id = ?", id)!;
+  const snap: PageSnapshot = {
+    title: row.title,
+    layout: json(row.layout, { sections: [] }),
+    seo: { ...json(row.seo, {}), noIndex: true },
+    customCss: row.custom_css,
+    customJs: row.custom_js,
+    customHead: row.custom_head,
+    templateId: row.template_id,
+  };
+  return renderPageSnapshot({ id: row.id, parentId: row.parent_id, slug: row.slug, path }, snap, { query, studio });
 }
 
 export interface PageFragment {

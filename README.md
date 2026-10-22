@@ -282,6 +282,8 @@ Form posts made without JavaScript get a short HTML page instead of JSON. Many m
 
 `{{ }}` output is HTML-escaped, so a title like `<b>Hi</b>` shows as text. Page `{{ content }}` and rich text fields (already cleaned of scripts) print as HTML. To print other HTML you trust, add `| raw`, e.g. `<script>const data = {{ data | json | raw }};</script>` (`json` always writes `<` as `\u003c`, so it can't close the script tag). The `fn` filter only calls **public** endpoints, so signed-in-only data can't end up on a public page.
 
+**Live preview in Code Studio.** For a widget, template or site file, **Preview** (in the toolbar) shows a page beside the code with your *unsaved* changes, refreshed as you type, at desktop, tablet or phone width. It picks a page that uses the widget or template; choose any other from the list. The page is its current draft, shown at its real address (`?reef_studio=<token>`, only for you, never cached), so address-aware code behaves as on the live site. Nothing reaches visitors until you save.
+
 **React custom widget** (Code Studio → Widgets → +, choose React). The widget's fields arrive as props.
 
 ```jsx

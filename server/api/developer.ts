@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { all, get, run, json, now, logActivity, saveRevision, tx } from "../db";
-import { requirePerm, HttpError } from "../auth";
+import { requirePerm, can, HttpError } from "../auth";
+import { previewPages, savePreview } from "../preview";
 import { str, key, idParam, notFound } from "../http";
 import { mapFunction, runFunction, HOOK_EVENTS, unwrap } from "../functions";
 import { BUILTIN_WIDGETS } from "../../shared/widgets";
@@ -110,6 +111,17 @@ function mapWidget(r: any): CustomWidget {
 }
 
 developer.get("/widgets", (_req, res) => res.json(all("SELECT * FROM custom_widgets ORDER BY name").map(mapWidget)));
+// Code Studio's live preview: unsaved changes, kept for a while under a token the preview page uses
+developer.post("/studio-preview", (req, res) => {
+  if (!can(req, "code.edit") && !can(req, "templates.edit")) throw new HttpError(403, "You don't have permission to edit code.");
+  const b = req.body ?? {};
+  res.json({ token: savePreview(req.user!.id, typeof b.token === "string" ? b.token : undefined, b.overrides) });
+});
+developer.get("/studio-preview/pages", (req, res) => {
+  if (!can(req, "code.edit") && !can(req, "templates.edit")) throw new HttpError(403, "You don't have permission to edit code.");
+  res.json(previewPages({ widget: req.query.widget ? String(req.query.widget) : undefined, template: req.query.template ? Number(req.query.template) : undefined }));
+});
+
 developer.post("/widgets", requirePerm("code.edit"), (req, res) => {
   const name = str(req.body?.name, "Widget name", { required: true, max: 60 });
   const k = key(req.body?.key || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""), "Widget key");

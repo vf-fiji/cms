@@ -168,3 +168,59 @@ describe("server function history", () => {
     assert.equal((await editor.post(`/api/functions/${id}/restore/${latest.id}`)).status, 403);
   });
 });
+
+describe("live preview", () => {
+  let key: string;
+  let pagePath: string;
+
+  before(async () => {
+    const w = await developer.post("/api/widgets", { name: "Preview widget", renderer: "liquid" });
+    key = w.body.key;
+    await developer.put(`/api/widgets/${w.body.id}`, { template: "<p class='pw'>saved version</p>" });
+    const p = await admin.post("/api/pages", { title: "Preview page", starter: "blank" });
+    const page = await admin.get(`/api/pages/${p.body.id}`);
+    const layout = { sections: [{ id: "s1", props: {}, columns: [{ id: "c1", width: 12, props: {}, widgets: [{ id: "w1", type: key, props: {} }] }] }] };
+    await admin.put(`/api/pages/${p.body.id}`, { layout, baseUpdatedAt: page.body.updatedAt });
+    pagePath = `/${page.body.slug}`;
+  });
+
+  it("shows a page's draft with unsaved widget changes, at the page's own address", async () => {
+    const r = await developer.post("/api/studio-preview", { overrides: { widget: { key, template: "<p class='pw'>unsaved version</p>" } } });
+    assert.equal(r.status, 200);
+    const page = await developer.request("GET", `${pagePath}?reef_studio=${r.body.token}`);
+    assert.equal(page.status, 200);
+    assert.match(String(page.body), /unsaved version/);
+    assert.doesNotMatch(String(page.body), /class='pw'>saved version/);
+    assert.equal(page.headers.get("cache-control"), "no-store");
+    // the saved widget is untouched
+    const saved = await developer.get(`/api/widgets`);
+    assert.match(saved.body.find((w: any) => w.key === key).template, /saved version/);
+  });
+
+  it("updates the same preview as the code changes", async () => {
+    const first = await developer.post("/api/studio-preview", { overrides: { widget: { key, template: "<p>one</p>" } } });
+    const again = await developer.post("/api/studio-preview", { token: first.body.token, overrides: { widget: { key, template: "<p>two</p>" } } });
+    assert.equal(again.body.token, first.body.token);
+    assert.match(String((await developer.request("GET", `${pagePath}?reef_studio=${first.body.token}`)).body), /<p>two<\/p>/);
+  });
+
+  it("applies unsaved template changes", async () => {
+    const t = (await admin.get("/api/templates")).body.find((x: any) => x.isDefault);
+    const r = await developer.post("/api/studio-preview", { overrides: { template: { id: t.id, html: "<div class='tpl-preview'>{{ content }}</div>" } } });
+    assert.match(String((await developer.request("GET", `${pagePath}?reef_studio=${r.body.token}`)).body), /tpl-preview/);
+  });
+
+  it("keeps previews to the person who made them, and to people who edit code", async () => {
+    const r = await developer.post("/api/studio-preview", { overrides: { widget: { key, template: "<p>private</p>" } } });
+    assert.equal((await admin.request("GET", `${pagePath}?reef_studio=${r.body.token}`)).status, 410);
+    const visitor = await fetch(`${server.url}${pagePath}?reef_studio=${r.body.token}`);
+    assert.doesNotMatch(await visitor.text(), /private/);
+    assert.equal((await editor.post("/api/studio-preview", { overrides: {} })).status, 403);
+  });
+
+  it("lists the pages that use the widget first", async () => {
+    const pages = (await developer.get(`/api/studio-preview/pages?widget=${key}`)).body;
+    assert.equal(pages[0].path, pagePath);
+    assert.equal(pages[0].uses, true);
+  });
+});
