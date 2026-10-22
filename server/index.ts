@@ -67,6 +67,9 @@ app.use(
   express.static(UPLOAD_DIR, {
     maxAge: "30d",
     immutable: true,
+    // /media itself isn't a file: let a page published at that address answer it
+    index: false,
+    redirect: false,
     setHeaders: (res, file) => {
       if (file.endsWith(".svg")) res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:");
     },

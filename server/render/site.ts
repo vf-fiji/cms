@@ -5,7 +5,7 @@ import { renderLayout, type RenderCtx, type NavItem } from "./widgets";
 import { renderLiquid, escapeHtml as e, SafeHtml, liquidItem } from "./liquid";
 import { getTypeByKey, itemForTemplate, mapItem, itemUrl } from "../content";
 import { all as allRows } from "../db";
-import { importMapTag } from "../react";
+import { extraImports, importMapTag } from "../react";
 import { buildTailwind, classesFromHtml, classesFromSource, LAYER_ORDER } from "../tailwind";
 
 export interface PageSnapshot {
@@ -160,8 +160,9 @@ export async function renderDocument(input: DocInput): Promise<string> {
   const head = [
     `<meta charset="utf-8">`,
     `<style>${LAYER_ORDER}</style>`,
-    // must precede any module script; always present in the editor so React blocks can be added live
-    input.ctx.react || input.editor ? importMapTag() : "",
+    // must precede any module script; always present in the editor so React blocks can be added live,
+    // and whenever packages are configured (templates may import them)
+    input.ctx.react || input.editor || Object.keys(extraImports()).length ? importMapTag() : "",
     `<meta name="viewport" content="width=device-width, initial-scale=1">`,
     `<title>${e(metaTitle)}</title>`,
     desc ? `<meta name="description" content="${e(desc)}">` : "",
@@ -243,6 +244,79 @@ export async function renderPageSnapshot(
   });
 }
 
+// ---------- dynamic routes ----------
+// A page can answer extra addresses ("routes"): /news/:slug, /docs/* or "*"
+// (any address nothing else answers, i.e. the "page not found" page).
+
+/** Parameters when `path` matches `pattern`, otherwise null. */
+export function matchRoute(pattern: string, path: string): Record<string, string> | null {
+  if (pattern === "*") return {};
+  const want = pattern.split("/").filter(Boolean);
+  const have = path.split("/").filter(Boolean);
+  const params: Record<string, string> = {};
+  for (let i = 0; i < want.length; i++) {
+    if (want[i] === "*") {
+      if (have.length <= i) return null;
+      params.rest = have.slice(i).map(decodeURIComponent).join("/");
+      return params;
+    }
+    if (i >= have.length) return null;
+    if (want[i].startsWith(":")) params[want[i].slice(1)] = decodeURIComponent(have[i]);
+    else if (want[i].toLowerCase() !== have[i].toLowerCase()) return null;
+  }
+  return want.length === have.length ? params : null;
+}
+
+/** More literal segments win over parameters, which win over wildcards. */
+const specificity = (pattern: string) =>
+  pattern.split("/").filter(Boolean).reduce((n, seg) => n + (seg === "*" ? 1 : seg.startsWith(":") ? 10 : 100), 0);
+
+type RoutedRow = PageRow & { routes: string };
+
+/** The published page that answers `path` through its routes (the most specific pattern wins). "*" pages are left out. */
+export function findRoutedPage(path: string): { page: RoutedRow; params: Record<string, string> } | null {
+  let best: { page: RoutedRow; params: Record<string, string>; score: number } | null = null;
+  for (const page of all<RoutedRow>("SELECT * FROM pages WHERE published IS NOT NULL AND routes != '' ORDER BY sort, id")) {
+    for (const pattern of page.routes.split("\n")) {
+      if (pattern === "*") continue;
+      const params = matchRoute(pattern, path);
+      const score = specificity(pattern);
+      if (params && (!best || score > best.score)) best = { page, params, score };
+    }
+  }
+  return best && { page: best.page, params: best.params };
+}
+
+/** The published page that answers addresses nothing else does ("*"). */
+function notFoundPage(): RoutedRow | undefined {
+  return all<RoutedRow>("SELECT * FROM pages WHERE published IS NOT NULL AND routes != '' ORDER BY sort, id").find((p) => p.routes.split("\n").includes("*"));
+}
+
+/** For a routed address that is also a content item's (/news/<slug>), that item's title and summary. */
+function itemForPath(path: string): { title: string; summary: string; image: string } | null {
+  const m = path.match(/^\/(.+)\/([^/]+)\/?$/);
+  if (!m) return null;
+  const t = all<any>("SELECT key, url_prefix FROM content_types").find((x) => (x.url_prefix || x.key).replace(/^\/+|\/+$/g, "") === m[1]);
+  if (!t) return null;
+  const type = getTypeByKey(t.key)!;
+  const row = get("SELECT * FROM content_items WHERE type_id = ? AND slug = ? AND status = 'published'", type.id, decodeURIComponent(m[2]));
+  if (!row) return null;
+  const item = itemForTemplate(type, mapItem(row));
+  return { title: item.title, summary: String(item.summary || ""), image: String(item.image || "") };
+}
+
+/** Renders a page that answers `path` through a route, titled after the content item at that address if there is one. */
+async function renderRouted(page: RoutedRow, path: string, query: Record<string, string>, notFound = false) {
+  const snap = json<PageSnapshot>(page.published!, null as any);
+  const item = notFound ? null : itemForPath(path);
+  const titled = item
+    ? { ...snap, title: item.title, seo: { ...snap.seo, metaTitle: "", metaDescription: item.summary || snap.seo?.metaDescription, ogImage: item.image || snap.seo?.ogImage } }
+    : notFound
+      ? { ...snap, seo: { ...snap.seo, noIndex: true } }
+      : snap;
+  return renderPageSnapshot({ id: page.id, parentId: page.parent_id, slug: page.slug, path }, titled, { query });
+}
+
 export interface PageFragment {
   path: string;
   title: string;
@@ -258,10 +332,11 @@ export interface PageFragment {
  * front end to load and mount with VodaForge's React runtime (/_reef/react.js).
  */
 export async function renderFragment(path: string): Promise<PageFragment | null> {
-  const page = findPageByPath(path);
+  const direct = findPageByPath(path);
+  const page = direct?.published ? direct : findRoutedPage(path)?.page;
   if (!page?.published) return null;
   const snap = json<PageSnapshot>(page.published, null as any);
-  const canonical = computePaths().get(page.id) ?? path;
+  const canonical = direct?.published ? (computePaths().get(page.id) ?? path) : path;
   const ctx = newCtx(canonical, false, {}, { id: page.id, title: snap.title, parentId: page.parent_id });
   const html = await renderLayout(snap.layout, ctx);
   // utilities only: the front end's own base styles stay in charge
@@ -309,6 +384,10 @@ async function renderPath(path: string, query: Record<string, string>): Promise<
     const html = await renderPageSnapshot({ id: page.id, parentId: page.parent_id, slug: page.slug, path: paths.get(page.id) ?? path }, snap, { query });
     return { status: 200, html };
   }
+
+  // pages that answer this address through a route (they take over content detail pages)
+  const routed = findRoutedPage(path);
+  if (routed) return { status: 200, html: await renderRouted(routed.page, path, query) };
 
   // content detail pages: /{prefix}/{slug}
   const m = path.match(/^\/(.+)\/([^/]+)\/?$/);
@@ -367,6 +446,8 @@ export const DEFAULT_DETAIL_TEMPLATE = `<article class="rf-article">
 </article>`;
 
 async function renderNotFound(path: string) {
+  const custom = notFoundPage();
+  if (custom) return renderRouted(custom, path, {}, true);
   const ctx = newCtx(path, false, {});
   return renderDocument({
     title: "Page not found",

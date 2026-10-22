@@ -232,6 +232,8 @@ function addColumn(table: string, column: string, ddl: string) {
   if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
 }
 addColumn("custom_widgets", "renderer", "TEXT NOT NULL DEFAULT 'liquid'");
+// Extra addresses a page answers, one pattern per line (e.g. /news/:slug, or * for "page not found")
+addColumn("pages", "routes", "TEXT NOT NULL DEFAULT ''");
 addColumn("custom_widgets", "ssr", "INTEGER NOT NULL DEFAULT 1");
 addColumn("media", "variants", "TEXT NOT NULL DEFAULT '[]'");
 addColumn("media", "focal", "TEXT NOT NULL DEFAULT ''");

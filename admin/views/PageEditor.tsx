@@ -17,6 +17,7 @@ interface Doc {
   parentId: number | null;
   templateId: number | null;
   showInNav: boolean;
+  routes: string[];
   seo: PageSeo;
   layout: PageLayout;
   customCss: string;
@@ -34,6 +35,7 @@ const docOf = (p: Page): Doc => ({
   parentId: p.parentId,
   templateId: p.templateId,
   showInNav: p.showInNav,
+  routes: p.routes ?? [],
   seo: p.seo ?? {},
   layout: p.layout ?? { sections: [] },
   customCss: p.customCss ?? "",
@@ -56,6 +58,30 @@ function usePhone() {
   return phone;
 }
 
+/** Desktop canvas width: pages lay out as on a laptop screen (wide navigation, sidebars and grids). */
+const DESKTOP_WIDTH = 1280;
+
+/** When the canvas is narrower than a desktop screen, the size and scale that fit the page into it. */
+function useDesktopFit(el: HTMLDivElement | null, active: boolean) {
+  const [fit, setFit] = useState<{ width: number; height: number; scale: number } | null>(null);
+  useEffect(() => {
+    if (!active || !el) return setFit(null);
+    const measure = () => {
+      const cs = getComputedStyle(el);
+      const w = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const h = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      if (w <= 0 || w >= DESKTOP_WIDTH) return setFit(null);
+      const scale = w / DESKTOP_WIDTH;
+      setFit({ width: DESKTOP_WIDTH, height: Math.round(h / scale), scale });
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    measure();
+    return () => ro.disconnect();
+  }, [active, el]);
+  return fit;
+}
+
 export function PageEditor() {
   useProChrome();
   const { id } = useParams();
@@ -70,6 +96,8 @@ export function PageEditor() {
   const [device, setDevice] = useState<Device>("desktop");
   const [leftTab, setLeftTab] = useState<"add" | "outline">("add");
   const phone = usePhone();
+  const [canvasWrap, setCanvasWrap] = useState<HTMLDivElement | null>(null);
+  const desktopFit = useDesktopFit(canvasWrap, device === "desktop" && !phone);
   const [showLeft, setShowLeft] = useState(() => !isPhone());
   const [showRight, setShowRight] = useState(() => !isPhone());
   // phone: leaving or entering phone width resets the panels; picking a block opens its properties
@@ -564,8 +592,16 @@ export function PageEditor() {
       </aside>
 
       {/* ---------- canvas ---------- */}
-      <div className="canvas-wrap" onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
-        <iframe ref={iframe} title="Page canvas" className={`canvas-frame ${device}`} />
+      <div ref={setCanvasWrap} className="canvas-wrap" onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
+        {/* Desktop shows the page at a real desktop width, scaled down to fit when the canvas is narrower. */}
+        <div className="canvas-fit" style={desktopFit ? { width: desktopFit.width * desktopFit.scale, height: desktopFit.height * desktopFit.scale } : { display: "contents" }}>
+          <iframe
+            ref={iframe}
+            title="Page canvas"
+            className={`canvas-frame ${device}`}
+            style={desktopFit ? { width: desktopFit.width, height: desktopFit.height, transform: `scale(${desktopFit.scale})`, transformOrigin: "0 0" } : undefined}
+          />
+        </div>
       </div>
 
       {/* ---------- right: inspector ---------- */}
@@ -1018,6 +1054,18 @@ function PageSettings({
               <span className="input-prefix">{parentPath}/</span>
               <input className="input" value={doc.slug} disabled={page.isHome} onChange={(e) => onChange({ slug: slugify(e.target.value) || e.target.value.toLowerCase() }, "slug")} />
             </div>
+          </Field>
+          <Field
+            label="Also answers these addresses"
+            help="One pattern per line. /news/:slug shows this page for every /news/… address (a detail page template); /docs/* covers everything under /docs; * on its own makes this the “page not found” page."
+          >
+            <textarea
+              className="input mono"
+              rows={2}
+              value={doc.routes.join("\n")}
+              placeholder="/news/:slug"
+              onChange={(e) => onChange({ routes: e.target.value.split("\n") }, "routes")}
+            />
           </Field>
           <div className="grid-2">
             <Field label="Parent page">

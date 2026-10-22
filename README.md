@@ -294,6 +294,8 @@ export default function Counter({ title }) {
 
 **Shared component libraries.** Bare imports go through esm.sh, except packages listed in the **import map** (`importMap` in Settings, or the `REEF_IMPORT_MAP` environment variable as JSON), which the browser loads from the address given, e.g. `{"@fnrl/kit": "https://fnrl.example.com/cms-kit/fnrl-kit.js"}`. React always comes from VodaForge.
 
+**Dynamic routes.** A page can answer extra addresses (page settings › "Also answers these addresses", one pattern per line): `/news/:slug` makes it the page for every `/news/…` address (a detail template; it takes over the content type's own detail pages, and is titled after the item at that address), `/docs/*` covers everything under `/docs/`, and `*` makes it the "page not found" page (served with a 404 status). Real pages always win, then the most specific pattern. Blocks read the address from `location`.
+
 **Headless front ends that keep their own frame** can show published pages with `GET /api/public/render?path=/about`: the page body HTML, its CSS, and its React widgets as module addresses (`/_reef/rw/<hash>.js`) to mount with `mount(Component, id)` from `/_reef/react.js`.
 
 **Fiji National Rugby League.** `npm run fnrl:import -- --site=<FNRL site> [--api=<FNRL server>] [--secret=<webhook secret>]` installs the FNRL blocks, template, pages and news (see `scripts/import-fnrl.ts` and the FNRL repository's `docs/CMS.md`).

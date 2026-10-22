@@ -50,9 +50,9 @@ publicApi.get("/public/pages", (_req, res) => {
   requireHeadless();
   const paths = computePaths();
   res.json(
-    all("SELECT id, parent_id, published, published_at FROM pages WHERE published IS NOT NULL ORDER BY sort").map((r) => {
+    all("SELECT id, parent_id, routes, published, published_at FROM pages WHERE published IS NOT NULL ORDER BY sort").map((r) => {
       const s = json<PageSnapshot>(r.published, null as any);
-      return { id: r.id, parentId: r.parent_id, title: s.title, path: paths.get(r.id), seo: s.seo, layout: s.layout, publishedAt: r.published_at };
+      return { id: r.id, parentId: r.parent_id, title: s.title, path: paths.get(r.id), routes: String(r.routes || "").split("\n").filter(Boolean), seo: s.seo, layout: s.layout, publishedAt: r.published_at };
     }),
   );
 });

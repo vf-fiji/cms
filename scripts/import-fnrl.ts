@@ -62,6 +62,9 @@ interface SeedPage {
   title: string;
   seoDescription: string;
   blocks: { type: string; props?: Record<string, unknown> }[];
+  showInNav?: boolean;
+  routes?: string[];
+  metaTitle?: string;
 }
 
 const { widgets } = await getJson<{ widgets: KitWidget[] }>(`${api}/cms-kit/widgets.json`);
@@ -100,11 +103,25 @@ async function importSite() {
   } as any);
   done.push("Site name, colours and the headless API set for FNRL");
 
-  // 3. Template: the FNRL styles around the page, as on the FNRL site
+  // 3. Template: the FNRL styles and site frame (sidebar, network strip, header,
+  //    footer) around the page, as on the FNRL site. The frame is drawn by the
+  //    FNRL kit into the empty slots, from the "Site frame" page's settings.
   const tpl = {
     name: "FNRL",
     head: `<link rel="stylesheet" href="${site}/cms-kit/fnrl-kit.css">`,
-    html: `<div class="nx nx-cms-canvas"><main id="nx-main">{{ content }}</main></div>`,
+    html: [
+      `<div class="nx nx-cms-canvas" id="fnrl-frame">`,
+      `  <div class="nx-frame-slot" id="fnrl-frame-sidebar"></div>`,
+      `  <div class="nx-shell">`,
+      `    <div class="nx-frame-slot" id="fnrl-frame-strip"></div>`,
+      `    <div class="nx-frame-slot" id="fnrl-frame-header"></div>`,
+      `    <main id="nx-main">{{ content }}</main>`,
+      `    <div class="nx-frame-slot" id="fnrl-frame-footer"></div>`,
+      `  </div>`,
+      `  <div class="nx-frame-slot" id="fnrl-frame-search"></div>`,
+      `</div>`,
+      `<script type="module">import { mountFrame } from "@fnrl/kit"; mountFrame();</script>`,
+    ].join("\n"),
     css: "body{margin:0;background:#0b0d10}",
   };
   const existingTpl = get<{ id: number }>("SELECT id FROM templates WHERE name = ?", tpl.name);
@@ -118,12 +135,17 @@ async function importSite() {
   const keepDemo = args["keep-demo"] === "true";
   tx(() => {
     if (keepDemo) {
-      for (const p of seed.pages) run("DELETE FROM pages WHERE slug = ? AND parent_id IS NULL", slugOf(p.path));
+      for (const p of seed.pages) if (p.path.split("/").length === 2) run("DELETE FROM pages WHERE slug = ? AND parent_id IS NULL", slugOf(p.path));
     } else {
       run("DELETE FROM pages");
       run("DELETE FROM revisions WHERE entity = 'page'");
     }
-    seed.pages.forEach((p, n) => {
+    // parents before their children (/templates before /templates/news)
+    const ids = new Map<string, number>();
+    const depth = (path: string) => path.split("/").filter(Boolean).length;
+    [...seed.pages].sort((a, b) => depth(a.path) - depth(b.path)).forEach((p) => {
+      const n = seed.pages.indexOf(p);
+      const parentPath = p.path.slice(0, p.path.lastIndexOf("/")) || null;
       const layout: PageLayout = {
         sections: p.blocks.map((b) => ({
           id: id(),
@@ -132,15 +154,18 @@ async function importSite() {
           columns: [{ id: id(), width: 12, props: {}, widgets: [{ id: id(), type: b.type, props: { ...defaultsOf(b.type), ...(b.props ?? {}), _spacing: "none" } }] }],
         })),
       };
-      const seo = { metaDescription: p.seoDescription };
+      const seo = { metaDescription: p.seoDescription, ...(p.metaTitle ? { metaTitle: p.metaTitle } : {}) };
       const snapshot = { title: p.title, layout, seo, customCss: "", customJs: "", customHead: "", templateId };
       const stamp = now(); // the same time, so the page doesn't show as having unpublished changes
       run(
-        "INSERT INTO pages(title, slug, sort, template_id, status, show_in_nav, is_home, seo, layout, published, published_at, updated_at) VALUES(?,?,?,?,'published',1,?,?,?,?,?,?)",
+        "INSERT INTO pages(title, slug, routes, parent_id, sort, template_id, status, show_in_nav, is_home, seo, layout, published, published_at, updated_at) VALUES(?,?,?,?,?,?,'published',?,?,?,?,?,?,?)",
         p.title,
         slugOf(p.path),
+        (p.routes ?? []).join("\n"),
+        parentPath && parentPath !== "/" ? (ids.get(parentPath) ?? null) : null,
         n,
         templateId,
+        p.showInNav === false ? 0 : 1,
         p.path === "/" ? 1 : 0,
         JSON.stringify(seo),
         JSON.stringify(layout),
@@ -148,10 +173,20 @@ async function importSite() {
         stamp,
         stamp,
       );
+      ids.set(p.path, Number(get<{ id: number }>("SELECT last_insert_rowid() AS id")!.id));
     });
     if (seed.pages.some((p) => p.path === "/")) run("UPDATE pages SET is_home = CASE WHEN slug = 'home' AND parent_id IS NULL THEN 1 ELSE 0 END");
+    // FNRL's short addresses
+    for (const [from, to] of [
+      ["/bati", "/national-teams/fiji-bati"],
+      ["/bulikula", "/national-teams/fiji-bulikula"],
+      ["/watch", "/media"],
+    ]) {
+      run("DELETE FROM redirects WHERE from_path = ?", from);
+      run("INSERT INTO redirects(from_path, to_path, code) VALUES(?,?,301)", from, to);
+    }
   });
-  done.push(`Pages ${seed.pages.map((p) => p.title).join(", ")} created and published${keepDemo ? "" : " (demo pages removed)"}`);
+  done.push(`${seed.pages.length} pages created and published, including the Site frame and ${seed.pages.filter((p) => p.path.startsWith("/templates/")).length} detail templates${keepDemo ? "" : " (demo pages removed)"}`);
 
   // 5. News: FNRL's story fields
   const newsFields: FieldDef[] = [
@@ -252,7 +287,7 @@ function defaultsOf(type: string) {
 }
 
 function slugOf(p: string) {
-  return p === "/" ? "home" : p.replace(/^\/+|\/+$/g, "");
+  return p === "/" ? "home" : p.split("/").filter(Boolean).pop()!;
 }
 
 function toHtml(text = "") {

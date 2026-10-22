@@ -35,6 +35,7 @@ function mapPage(r: any, paths: Map<number, string>): Page {
     hasUnpublishedChanges: r.published ? JSON.stringify(snap) !== JSON.stringify(json(r.published, {})) : true,
     showInNav: !!r.show_in_nav,
     isHome: !!r.is_home,
+    routes: routesOf(r.routes),
     seo: snap.seo,
     layout: snap.layout,
     customCss: r.custom_css,
@@ -45,6 +46,22 @@ function mapPage(r: any, paths: Map<number, string>): Page {
     updatedAt: r.updated_at,
     updatedBy: r.updated_by_name ?? null,
   };
+}
+
+/** Route patterns as stored (one per line). */
+const routesOf = (v: unknown) => String(v ?? "").split("\n").map((s) => s.trim()).filter(Boolean);
+
+/** Validates the extra addresses a page answers: "/news/:slug", "/docs/*" or "*". */
+function cleanRoutes(v: unknown): string {
+  const list = (Array.isArray(v) ? v : String(v ?? "").split("\n")).map((s) => String(s).trim()).filter(Boolean);
+  if (list.length > 20) throw new HttpError(400, "A page can answer at most 20 extra addresses.");
+  for (const r of list) {
+    if (r !== "*" && !/^(\/(:[a-z][a-z0-9_]{0,30}|[a-z0-9][a-z0-9._~-]{0,80}|\*))+$/i.test(r)) {
+      throw new HttpError(400, `“${r}” isn't a valid address pattern. Use segments like /news/:slug, /docs/* or * on its own.`);
+    }
+    if (r.slice(1).includes("*") && !r.endsWith("/*")) throw new HttpError(400, `In “${r}”, * can only be the last segment.`);
+  }
+  return [...new Set(list)].join("\n");
 }
 
 const PAGE_SELECT = "SELECT p.*, u.name updated_by_name FROM pages p LEFT JOIN users u ON u.id = p.updated_by";
@@ -154,20 +171,22 @@ pages.put("/pages/:id", requirePerm("pages.edit"), (req, res) => {
     }
   }
   const slug = b.slug !== undefined ? uniqueSlug(parentId, slugify(String(b.slug) || title), id) : row.slug;
+  const routes = b.routes !== undefined ? cleanRoutes(b.routes) : row.routes;
   const layout = b.layout !== undefined ? JSON.stringify(b.layout) : row.layout;
   if (layout.length > 2_000_000) throw new HttpError(413, "This page is too large to save. Split it into smaller pages.");
   assertCodeUnchanged(req, row, b, layout);
   if (b.publishAt && b.publishAt !== row.publish_at && !can(req, "pages.publish")) throw new HttpError(403, "Scheduling a page to publish needs permission to publish pages. Send it for review instead.");
-  if (row.published && (slug !== row.slug || parentId !== row.parent_id) && !can(req, "pages.publish")) {
+  if (row.published && (slug !== row.slug || parentId !== row.parent_id || routes !== row.routes) && !can(req, "pages.publish")) {
     throw new HttpError(403, "This page is live, so moving it or changing its address needs permission to publish pages.");
   }
   // A live page keeps "published"; pending edits show via hasUnpublishedChanges.
   const status = row.status === "review" ? "review" : row.published ? "published" : "draft";
   const updatedAt = now();
   run(
-    `UPDATE pages SET title=?, slug=?, parent_id=?, template_id=?, show_in_nav=?, seo=?, layout=?, custom_css=?, custom_js=?, custom_head=?, publish_at=?, status=?, updated_at=?, updated_by=? WHERE id=?`,
+    `UPDATE pages SET title=?, slug=?, routes=?, parent_id=?, template_id=?, show_in_nav=?, seo=?, layout=?, custom_css=?, custom_js=?, custom_head=?, publish_at=?, status=?, updated_at=?, updated_by=? WHERE id=?`,
     title,
     slug,
+    routes,
     parentId,
     b.templateId !== undefined ? b.templateId || null : row.template_id,
     b.showInNav !== undefined ? !!b.showInNav : !!row.show_in_nav,

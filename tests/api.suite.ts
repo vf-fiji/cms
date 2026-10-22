@@ -492,3 +492,53 @@ describe("page fragments for headless front ends", () => {
     await admin.put("/api/settings", { importMap: {} });
   });
 });
+
+describe("dynamic routes", () => {
+  const publishWith = async (title: string, text: string, routes: string[]) => {
+    const p = await admin.post("/api/pages", { title, starter: "blank" });
+    const page = await admin.get(`/api/pages/${p.body.id}`);
+    const saved = await admin.put(`/api/pages/${p.body.id}`, { layout: layoutWith(text), routes, baseUpdatedAt: page.body.updatedAt });
+    assert.equal(saved.status, 200);
+    assert.deepEqual(saved.body.routes, routes);
+    await admin.post(`/api/pages/${p.body.id}/publish`);
+    return p.body.id as number;
+  };
+
+  it("shows a page for every address its patterns match", async () => {
+    await publishWith("Item template", "Item template body", ["/items/:slug"]);
+    const html = await (await fetch(`${server.url}/items/anything-at-all`)).text();
+    assert.match(html, /Item template body/);
+    assert.equal((await fetch(`${server.url}/items/a/b`)).status, 404, ":slug is one segment");
+    const f = await (await fetch(`${server.url}/api/public/render?path=/items/xyz`)).json();
+    assert.equal(f.path, "/items/xyz");
+    assert.match(f.html, /Item template body/);
+    const pages = await (await fetch(`${server.url}/api/public/pages`)).json();
+    assert.deepEqual(pages.find((p: any) => p.title === "Item template").routes, ["/items/:slug"]);
+  });
+
+  it("prefers the more specific pattern, and real pages over patterns", async () => {
+    await publishWith("Docs catch-all", "Any doc", ["/docs/*"]);
+    await publishWith("Docs special", "Special doc", ["/docs/special"]);
+    assert.match(await (await fetch(`${server.url}/docs/special`)).text(), /Special doc/);
+    assert.match(await (await fetch(`${server.url}/docs/a/b/c`)).text(), /Any doc/);
+    assert.equal((await fetch(`${server.url}/docs`)).status, 404, "/docs/* needs something after /docs/");
+  });
+
+  it("uses a * page for addresses nothing else answers, with a 404 status", async () => {
+    await publishWith("Lost", "Custom not found", ["*"]);
+    const r = await fetch(`${server.url}/no/such/page/here`);
+    assert.equal(r.status, 404);
+    const html = await r.text();
+    assert.match(html, /Custom not found/);
+    assert.match(html, /noindex/);
+  });
+
+  it("refuses patterns that aren't addresses", async () => {
+    const p = await admin.post("/api/pages", { title: "Bad routes", starter: "blank" });
+    const page = await admin.get(`/api/pages/${p.body.id}`);
+    for (const bad of ["news/:slug", "/a/*/b", "/<script>", "/a b"]) {
+      const r = await admin.put(`/api/pages/${p.body.id}`, { routes: [bad], baseUpdatedAt: page.body.updatedAt, force: true });
+      assert.equal(r.status, 400, bad);
+    }
+  });
+});

@@ -86,6 +86,8 @@ export interface Page {
   hasUnpublishedChanges: boolean;
   showInNav: boolean;
   isHome: boolean;
+  /** Extra addresses this page answers, e.g. "/news/:slug" (one segment per :name), "/docs/*", or "*" for pages not found. */
+  routes: string[];
   seo: PageSeo;
   layout: PageLayout;
   customCss: string;
