@@ -8,7 +8,11 @@
 //   --secret   CMS_WEBHOOK_SECRET of the FNRL server. When given, publishing a
 //              page or a news item tells the FNRL site straight away; without it
 //              the site picks changes up within 15 seconds.
-//   --widgets-only  only refresh the FNRL block code (after FNRL blocks change).
+//   --widgets-only  only refresh the FNRL block code (after FNRL blocks change);
+//                   pages, news and settings editors own are left alone. Run on
+//                   every FNRL release (scripts/deploy.sh in the FNRL repository).
+//   --force-widgets also replace blocks whose code was changed in Code Studio
+//                   (normally those are kept).
 //   --keep-demo     keep the VodaForge demo pages and content.
 //
 // It replaces the demo pages with the FNRL pages (Home, About, Governance,
@@ -70,19 +74,37 @@ interface SeedPage {
 const { widgets } = await getJson<{ widgets: KitWidget[] }>(`${api}/cms-kit/widgets.json`);
 
 // 1. FNRL blocks as React widgets. They import the shared FNRL kit (@fnrl/kit).
+//    Each block's imported code is fingerprinted. A block whose code was changed in
+//    Code Studio since then is kept as it is (VodaForge's version wins), unless
+//    --force-widgets is given, so this can run on every FNRL release.
+run("CREATE TABLE IF NOT EXISTS fnrl_widget_imports (key TEXT PRIMARY KEY, hash TEXT NOT NULL, imported_at TEXT NOT NULL)");
+const fingerprint = (source: string) => crypto.createHash("sha256").update(source).digest("hex");
+const kept: string[] = [];
 tx(() => {
   for (const w of widgets) {
-    const existing = get<{ id: number }>("SELECT id FROM custom_widgets WHERE key = ?", w.key);
+    const existing = get<{ id: number; template: string }>("SELECT id, template FROM custom_widgets WHERE key = ?", w.key);
+    const last = get<{ hash: string }>("SELECT hash FROM fnrl_widget_imports WHERE key = ?", w.key);
+    if (existing && last && fingerprint(existing.template) !== last.hash && args["force-widgets"] !== "true") {
+      kept.push(w.name);
+      continue;
+    }
     const values = [w.name, w.icon, w.category, w.description, JSON.stringify(w.fields), w.source, "", "", "react", 0, now()];
     if (existing) {
       run("UPDATE custom_widgets SET name=?, icon=?, category=?, description=?, fields=?, template=?, css=?, js=?, renderer=?, ssr=?, updated_at=? WHERE id=?", ...values, existing.id);
     } else {
       run("INSERT INTO custom_widgets(name, icon, category, description, fields, template, css, js, renderer, ssr, updated_at, key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", ...values, w.key);
     }
+    run(
+      "INSERT INTO fnrl_widget_imports(key, hash, imported_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET hash = excluded.hash, imported_at = excluded.imported_at",
+      w.key,
+      fingerprint(w.source),
+      now(),
+    );
   }
 });
 saveSettings({ importMap: { "@fnrl/kit": `${site}/cms-kit/fnrl-kit.js` } } as any);
-done.push(`${widgets.length} FNRL blocks installed (Widgets › FNRL …), loading the FNRL kit from ${site}/cms-kit/`);
+done.push(`${widgets.length - kept.length} FNRL blocks installed (Widgets › FNRL …), loading the FNRL kit from ${site}/cms-kit/`);
+if (kept.length) done.push(`kept ${kept.length} block(s) changed in Code Studio: ${kept.join(", ")} (--force-widgets replaces them)`);
 
 if (args["widgets-only"] !== "true") await importSite();
 
